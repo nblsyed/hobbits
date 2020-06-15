@@ -87,7 +87,7 @@ QSharedPointer<const OperatorResult> PlayfulPlugin::operateOnContainers(
 
 
 
-    //A little program that besmirches the insides of words
+    //A little program that scrambles the insides of words
 
     QTime time = QTime::currentTime();
     qsrand((uint)time.msec());
@@ -97,10 +97,10 @@ QSharedPointer<const OperatorResult> PlayfulPlugin::operateOnContainers(
 
     bool p = true;
     for(int i = 0; i < message.length()-1; i++){
-        if(message[i+1] == " " || p==true){
+        if(message[i+1] == " " || p == true ){
             p = false;
         }else if(message[i] == " "){
-            p = true;
+            p =true;
         }else{
 
             int r = qrand() % ((5 + 1) - 1) + 1;
