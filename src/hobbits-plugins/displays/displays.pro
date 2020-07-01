@@ -8,6 +8,7 @@ SUBDIRS += \
     DigraphPlot \
     DotPlot \
     FrequencyPlot \
+    FunDisplay \
     HexView \
     HilbertPlot \
     SymbolRaster
