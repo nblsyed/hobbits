@@ -2,6 +2,7 @@ TEMPLATE = subdirs
 
 SUBDIRS += \
     BitsError \
+    Compressor \
     Extractor \
     PlayfulPlugin \
     PrbsGenerator \
