@@ -8,9 +8,7 @@
 #include<QDebug>
 #include <vector>
 #include <cstdlib>
-#include <bitset>
-#include <QMessageBox>
-#include <QDataStream>
+
 using namespace std;
 
 Compressor::Compressor() :
@@ -63,8 +61,8 @@ bool Compressor::setPluginStateInUi(const QJsonObject &pluginState)
     // Set the UI fields based on the plugin state
     ui->custom->setText(pluginState.value("message").toString());
     ui->cb_type->addItem("Huffman Latin1");
-    ui->rd_enc->setChecked(false);
-    ui->rd_dec->setChecked(true);
+    //ui->rd_enc->setChecked(false);
+    //ui->rd_dec->setChecked(true);
     return true;
 }
 
@@ -194,13 +192,12 @@ Node* makeTree(QString letters, QVector<int> nums) {
 //decodes metadata from encrypted file
 void loadPrefix(QString huffCode, QByteArray bytes, QSharedPointer<const BitArray> input){
 
-
+    huffCode.remove(0,2);
     int id = huffCode.indexOf("]?[");
     int sizeId = huffCode.indexOf("[?]");
     int encSize = (huffCode.mid(id+3, sizeId-(id+3))).toInt();
     QString code = huffCode.left(id);
     int id2 = bytes.indexOf("[?]")+3;
-
 
     QString letters;
     QVector<int> nums;
@@ -259,8 +256,8 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
         const QJsonObject &recallablePluginState,
         QSharedPointer<ActionProgress> progressTracker)
 {
-    QSharedPointer<OperatorResult> result(new OperatorResult());
-    QSharedPointer<const OperatorResult> nullResult;
+    //QSharedPointer<OperatorResult> result(new OperatorResult());
+    //QSharedPointer<const OperatorResult> nullResult;
     QList<QSharedPointer<BitContainer>> outputContainers;
     QSharedPointer<const BitArray> inputBits = inputContainers.takeFirst()->bits();
     QSharedPointer<BitContainer> bitContainer = QSharedPointer<BitContainer>(new BitContainer());
@@ -272,7 +269,18 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
         message.append(inputBits->getPreviewBytes());
     }
 
-    if(ui->rd_enc->isChecked()){
+
+
+    if(message.at(0) == "&" && message.at(1) =="&"){
+        loadPrefix(message, inputBits->getPreviewBytes(), inputBits);
+        message.clear();
+        for(int i = 0; i < decoded.size(); i++){
+            message.append(decoded.at(i));
+        }
+        bitContainer->setBits(message.toLatin1());
+        outputContainers.append(bitContainer);
+
+    }else{
 
         QString text = message;
         QString pre = "";
@@ -297,6 +305,8 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
             nums.append( text.count(letters.at(i))  );
         }
 
+
+        pre.append("&&");
         for(int i = 0; i < letters.size(); i++){
             pre.append(".,");
             pre.append(letters.at(i));
@@ -312,6 +322,7 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
         //stores codes
         unordered_map<char, string> huffmanCode;
         encode(root, "", huffmanCode);
+
 
         //encoded binary in string
         string str = "";
@@ -344,25 +355,6 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
 
         bitContainer->setBits(encoded);
         outputContainers.append(bitContainer);
-    }else{
-
-
-        if(!message.contains("]?[") || !message.contains("[?]")){
-            QMessageBox msgBox;
-            msgBox.setText("The input provided is not Huffman encoded.");
-            msgBox.exec();
-            return nullResult;
-        }else{
-            loadPrefix(message, inputBits->getPreviewBytes(), inputBits);
-            message.clear();
-            for(int i = 0; i < decoded.size(); i++){
-                message.append(decoded.at(i));
-            }
-            bitContainer->setBits(message.toLatin1());
-            outputContainers.append(bitContainer);
-        }
-
-
 
     }
 
