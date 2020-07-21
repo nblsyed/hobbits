@@ -1,3 +1,38 @@
+## [0.34.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.34.0...v0.34.1) (2020-07-17)
+
+
+### Bug Fixes
+
+* fix bugs and improve performance in Bit Error plugin ([e988e7c](https://github.com/Mahlet-Inc/hobbits/commit/e988e7c36aa4e38093ee2624939aa82e5f516293))
+* improve stability of preview scrollbar a little bit ([7783a67](https://github.com/Mahlet-Inc/hobbits/commit/7783a67fe4f53a63b651185bc9a15ef9d50940e6))
+* properly initialize de/interleave controls in Take Skip plugin ([50a295a](https://github.com/Mahlet-Inc/hobbits/commit/50a295a9b6093a9ced52c69be8307145f4c1af60))
+
+# [0.34.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.33.0...v0.34.0) (2020-07-01)
+
+
+### Features
+
+* add a "delete all containers" action ([56b77f4](https://github.com/Mahlet-Inc/hobbits/commit/56b77f47d33f5b163df1b6f77ddc6ad6ca9c7202))
+* add deinterleaving to the take skip plugin ([f04f6a1](https://github.com/Mahlet-Inc/hobbits/commit/f04f6a1c9874bc7466d900d57bc14e3c0fcf83c5))
+* add repeats and state saving to hex string import manual mode ([6d2ae1f](https://github.com/Mahlet-Inc/hobbits/commit/6d2ae1f7a967056f0b4add58c637f63a9a0ff1ac))
+* save window dock state and size between runs ([a90fe45](https://github.com/Mahlet-Inc/hobbits/commit/a90fe450efea072fb570b8d919f357524854f256))
+
+# [0.33.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.32.1...v0.33.0) (2020-06-26)
+
+
+### Features
+
+* add windows bat file for wizard installation for [#49](https://github.com/Mahlet-Inc/hobbits/issues/49) [#50](https://github.com/Mahlet-Inc/hobbits/issues/50) ([199570f](https://github.com/Mahlet-Inc/hobbits/commit/199570f99b9adc1afa87c4e0692b1826a085a465))
+* redesigned plugin action management, replacing "templates" with "batches"; resolves [#15](https://github.com/Mahlet-Inc/hobbits/issues/15) ([#51](https://github.com/Mahlet-Inc/hobbits/issues/51)) ([78da500](https://github.com/Mahlet-Inc/hobbits/commit/78da500359d2405d2a6f95fc5c7d4a7da7e2246c))
+
+## [0.32.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.32.0...v0.32.1) (2020-06-11)
+
+
+### Bug Fixes
+
+* enable Python versions lower than 3.6 to work with kaitai plugin ([fa12a87](https://github.com/Mahlet-Inc/hobbits/commit/fa12a8786d44f4ec900af655dedb1b3305d31f9e))
+* run kaitai-struct-compiler correctly in windows ([8b51480](https://github.com/Mahlet-Inc/hobbits/commit/8b514806a94ff13ff05d2c6e0c7deff86df05f64))
+
 # [0.32.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.31.1...v0.32.0) (2020-05-27)
 
 

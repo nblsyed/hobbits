@@ -2,6 +2,7 @@
 #define TAKESKIPOPERATOR_H
 
 #include "operatorinterface.h"
+#include "pluginstatehelper.h"
 
 namespace Ui
 {
@@ -16,6 +17,13 @@ class TakeSkipOperator : public QObject, OperatorInterface
 
 public:
     TakeSkipOperator();
+
+    class OutputHandle {
+    public:
+        qint64 idx;
+        QSharedPointer<BitArray> bits;
+        QVector<Range> frames;
+    };
 
     QString getName() override;
     OperatorInterface* createDefaultOperator() override;
@@ -37,10 +45,12 @@ public:
 private slots:
     void showHelp();
     void requestRun();
+    void interleaveSelectionChanged();
 
 private:
     Ui::TakeSkipOperator *ui;
     QSharedPointer<PluginCallback> m_pluginCallback;
+    QSharedPointer<PluginStateHelper> m_stateHelper;
 };
 
 #endif // TAKESKIPOPERATOR_H
