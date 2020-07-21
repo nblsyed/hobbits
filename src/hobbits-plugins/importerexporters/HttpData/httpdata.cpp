@@ -44,13 +44,14 @@ QString HttpData::getImportLabelForState(QJsonObject pluginState)
 
 QString HttpData::getExportLabelForState(QJsonObject pluginState)
 {
+    Q_UNUSED(pluginState)
     return "";
 }
 
-QSharedPointer<ImportExportResult> HttpData::importBits(QJsonObject pluginState, QWidget *parent)
+QSharedPointer<ImportResult> HttpData::importBits(QJsonObject pluginState)
 {
     if (!http) {
-        http = new HttpTransceiver(parent);
+        http = new HttpTransceiver();
     }
     http->setDownloadMode();
 
@@ -66,16 +67,16 @@ QSharedPointer<ImportExportResult> HttpData::importBits(QJsonObject pluginState,
         pluginState.remove("url");
         pluginState.insert("url", http->getUrl().toDisplayString());
 
-        return ImportExportResult::create(container, pluginState);
+        return ImportResult::result(container, pluginState);
     }
 
-    return ImportExportResult::nullResult();
+    return ImportResult::nullResult();
 }
 
-QSharedPointer<ImportExportResult> HttpData::exportBits(QSharedPointer<const BitContainer> container, QJsonObject pluginState, QWidget *parent)
+QSharedPointer<ExportResult> HttpData::exportBits(QSharedPointer<const BitContainer> container, QJsonObject pluginState)
 {
     if (!http) {
-        http = new HttpTransceiver(parent);
+        http = new HttpTransceiver();
     }
     http->setUploadMode(container->bits()->getPreviewBytes());
 
@@ -88,5 +89,5 @@ QSharedPointer<ImportExportResult> HttpData::exportBits(QSharedPointer<const Bit
     pluginState.remove("url");
     pluginState.insert("url", http->getUrl().toDisplayString());
 
-    return ImportExportResult::create(pluginState);
+    return ExportResult::result(pluginState);
 }

@@ -2,6 +2,7 @@
 #define BITSERROR_H
 
 #include "operatorinterface.h"
+#include "pluginstatehelper.h"
 
 namespace Ui
 {
@@ -38,13 +39,16 @@ public:
 
 private:
     QSharedPointer<const OperatorResult> getGaussianErrorBits(QSharedPointer<const BitContainer> input,
+                                                      double ber,
                                                       const QJsonObject &recallablePluginState,
                                                       QSharedPointer<ActionProgress> progressTracker);
     QSharedPointer<const OperatorResult> getPeriodicErrorBits(QSharedPointer<const BitContainer> input,
-                                                        const QJsonObject &recallablePluginState,
-                                                        QSharedPointer<ActionProgress> progressTracker);
+                                                      double ber,
+                                                      const QJsonObject &recallablePluginState,
+                                                      QSharedPointer<ActionProgress> progressTracker);
     Ui::BitsError *ui;
     QSharedPointer<PluginCallback> m_pluginCallback;
+    QSharedPointer<PluginStateHelper> m_stateHelper;
 
 };
 
