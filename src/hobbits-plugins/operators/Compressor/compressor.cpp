@@ -8,7 +8,8 @@
 #include<QDebug>
 #include <vector>
 #include <cstdlib>
-
+#include <QMap>
+#include <QMessageBox>
 using namespace std;
 
 Compressor::Compressor() :
@@ -17,7 +18,8 @@ Compressor::Compressor() :
 
 }
 
-QVector<char> decoded;
+QVector<QString> decoded;
+
 OperatorInterface* Compressor::createDefaultOperator()
 {
     return new Compressor();
@@ -38,7 +40,7 @@ void Compressor::provideCallback(QSharedPointer<PluginCallback> pluginCallback)
 void Compressor::applyToWidget(QWidget *widget)
 {
     ui->setupUi(widget);
-    ui->cb_type->addItem("Huffman Latin1");
+    ui->cb_type->addItem("Huffman 8-bit");
     //connect(ui->rd_enc, SIGNAL(clicked()), this, SLOT(showHelp()));
 }
 
@@ -60,9 +62,7 @@ bool Compressor::setPluginStateInUi(const QJsonObject &pluginState)
 
     // Set the UI fields based on the plugin state
     ui->custom->setText(pluginState.value("message").toString());
-    ui->cb_type->addItem("Huffman Latin1");
-    //ui->rd_enc->setChecked(false);
-    //ui->rd_dec->setChecked(true);
+
     return true;
 }
 
@@ -91,7 +91,7 @@ int Compressor::getMaxInputContainers(const QJsonObject &pluginState)
 
 struct Node
 {
-    char ch;
+    QString ch;
     int freq;
     Node *left, *right;
 
@@ -99,7 +99,7 @@ struct Node
 
 
 //allocate a new tree node
-Node* getNode(char ch, int freq, Node* left, Node* right)
+Node* getNode(QString ch, int freq, Node* left, Node* right)
 {
     Node* node = new Node();
 
@@ -123,7 +123,7 @@ struct comp
 
 //traverse the Huffman Tree and store Huffman Codes in a map.
 void encode(Node* root, string str,
-            unordered_map<char, string> &huffmanCode)
+            QMap<QString, string> &huffmanCode)
 {
     if (root == nullptr)
         return;
@@ -163,13 +163,13 @@ void decode(Node* root, int &index, string str)
 
 
 //makes binary tree from raw characters and their frequencies
-Node* makeTree(QString letters, QVector<int> nums) {
+Node* makeTree(QVector<QString> letters, QVector<int> nums) {
 
     priority_queue<Node*, vector<Node*>, comp> pq;
 
     //make leaf node for each character and add it to priority queue
     for (int i = 0; i < letters.size(); i++) {
-        pq.push(getNode(letters.at(i).toLatin1(), nums.at(i), nullptr, nullptr));
+        pq.push(getNode(letters.at(i), nums.at(i), nullptr, nullptr));
     }
 
     // do till there is more than one node in the queue
@@ -181,7 +181,7 @@ Node* makeTree(QString letters, QVector<int> nums) {
 
         //make internal node
         int sum = left->freq + right->freq;
-        pq.push(getNode('\0', sum, left, right));
+        pq.push(getNode("", sum, left, right));
     }
 
     //root stores pointer to root of Huffman Tree
@@ -189,55 +189,78 @@ Node* makeTree(QString letters, QVector<int> nums) {
     return root;
 }
 
-//decodes metadata from encrypted file
-void loadPrefix(QString huffCode, QByteArray bytes, QSharedPointer<const BitArray> input){
 
-    huffCode.remove(0,2);
-    int id = huffCode.indexOf("]?[");
-    int sizeId = huffCode.indexOf("[?]");
-    int encSize = (huffCode.mid(id+3, sizeId-(id+3))).toInt();
-    QString code = huffCode.left(id);
-    int id2 = bytes.indexOf("[?]")+3;
 
-    QString letters;
-    QVector<int> nums;
-    QString number;
-    for(int i = 2; i < huffCode.indexOf("]?["); i++){
+void load(QByteArray inputBytes, QSharedPointer<const BitArray> input){
 
-        if(code.at(i-2)=="." && code.at(i-1) == ","){
+    int encSize = (inputBytes.mid(3, (inputBytes.indexOf("|")-3))).toInt();
 
-            letters.append(code.at(i));
+    QVector<int> freq;
+    QVector<QVector<bool>> uniq;
+    QVector<bool> garb;
+    int startF = inputBytes.indexOf("|");
+    int endF = inputBytes.indexOf("^");
 
-        }else if(code.at(i-2)=="." && code.at(i-1)=="/"){
-            int c = i;
-            while(code.at(c)!="/"){
-                number.append(code.at(c));
-                c+=1;
+
+    //get the frequencies
+    for(int i = startF+1; i < endF; i++){
+        if(inputBytes.at(i)=='{'){
+            QString num;
+            int end = inputBytes.indexOf('}', i);
+            for(int j = i+1; j < end; j++){
+
+                num.append(inputBytes.at(j));
             }
-            nums.append(number.toInt());
-            number.clear();
-            i=c;
+            i = end;
+            freq.append(num.toInt());
+        }else{
+            freq.append((int)inputBytes.at(i));
         }
     }
 
-    Node* root = makeTree(letters, nums);
+    //get the 8-bit codes
+    int startC = (endF+1)*8;
+    int endC = inputBytes.indexOf("||")*8;
+    for(int i = startC; i < endC; i+=8){
+        QVector<bool> b;
+        for(int j = i; j < i+8; j++){
+            b.append(input->at(j));
+        }
+        uniq.append(b);
+    }
 
 
-    // traverse the Huffman Tree and store Huffman Codes
-    // in a map. Also prints them
-    unordered_map<char, string> huffmanCode;
-    encode(root, "", huffmanCode);
-
-
-    //encoded string
-    string str = "";
-    for(int i = id2*8; i < encSize+(id2*8); i++){
+    //get the encoded string
+    string str;
+    for(int i = (inputBytes.indexOf("||")+2)*8; i < ((inputBytes.indexOf("||")+2)*8)+encSize; i++){
+        garb.append(input->at(i));
         if(input->at(i)){
             str+="1";
         }else{
             str+="0";
         }
     }
+
+    QVector<QString> uniq2;
+    QString qs = "";
+    for(QVector<bool> qb : uniq){
+        for(bool b : qb){
+            if(b){
+                qs.append("1");
+            }else{
+                qs.append("0");
+            }
+        }
+        uniq2.append(qs);
+        qs.clear();
+    }
+
+    //makes the tree
+    Node* root = makeTree(uniq2, freq);
+
+    //stores codes
+    QMap<QString, string> huffmanCode;
+    encode(root, "", huffmanCode);
 
 
 
@@ -247,7 +270,10 @@ void loadPrefix(QString huffCode, QByteArray bytes, QSharedPointer<const BitArra
         decode(root, index, str);
     }
 
+
+
 }
+
 
 
 
@@ -264,100 +290,171 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
     QString message = recallablePluginState.value("message").toString();
     decoded.clear();
 
-    //
-    if(message.isEmpty()){
-        message.append(inputBits->getPreviewBytes());
-    }
 
 
+    QByteArray data = inputBits->getPreviewBytes();
 
-    if(message.at(0) == "&" && message.at(1) =="&"){
-        loadPrefix(message, inputBits->getPreviewBytes(), inputBits);
-        message.clear();
-        for(int i = 0; i < decoded.size(); i++){
-            message.append(decoded.at(i));
+    //can use to experiment with 16 bit or 32 bit based encryption
+    //larger bit means smaller huffman code but with larger metadata
+    //bit must be divisible by 8
+    int bit = 8;
+
+    //determine if file is encoded orn't
+    if(data.at(0) == '~' && data.at(2) == '~'){
+        load(data, inputBits);
+
+        QString dec;
+        for(QString q : decoded){
+            dec.append(q);
         }
-        bitContainer->setBits(message.toLatin1());
+        QSharedPointer<BitArray> output = QSharedPointer<BitArray>(new BitArray(dec.size()));
+        for(int i = 0; i < dec.size(); i++){
+            if(dec.at(i) == "0"){
+                output->set(i, 0);
+            }else{
+                output->set(i, 1);
+            }
+        }
+        bitContainer->setBits(output);
         outputContainers.append(bitContainer);
-
     }else{
 
-        QString text = message;
-        QString pre = "";
 
+    QString bits = "";
 
-        QString letters;
+    QVector<QString> hex;
+    QVector<QString> uniq;
+    QVector<int> freq;
 
-        QVector<int> nums;
-
-        //append unique characters to QString letters
-        for(int i = 0; i < text.size(); i++){
-            if(!letters.contains(text.at(i))){
-                letters.append(text.at(i));
-                i = 0;
-            }
+    //convert to string of bits
+    //
+    for(int i = 0; i < inputBits->sizeInBits(); i++){
+        if(inputBits->at(i)){
+            bits.append("1");
+        }else{
+            bits.append("0");
         }
+    }
 
-        sort(letters.begin(), letters.end());
-
-        //store frequencies of each letter in QVector nums
-        for(int i = 0; i < letters.size(); i++){
-            nums.append( text.count(letters.at(i))  );
+    //extract all bytes
+    for(int i = bit; i < bits.size() - (bits.size()%bit)+1; i+=bit){
+        if(i%bit == 0){
+            hex.append(bits.mid(i-bit, bit));
         }
+    }
 
+    //unlikely to happen
+    if(bits.size()%bit!=0){
+        hex.append(bits.mid(bits.size()-(bits.size()%bit), bits.size()));
+    }
 
-        pre.append("&&");
-        for(int i = 0; i < letters.size(); i++){
-            pre.append(".,");
-            pre.append(letters.at(i));
-            pre.append("./");
-            pre.append(QString::number(nums.at(i)));
-            pre.append("/");
+    //remove repetitions
+    for(int i = 0; i < hex.size(); i++){
+        if(!uniq.contains(hex.at(i))){
+            uniq.append(hex.at(i));
+            i = 0;
         }
+    }
 
-        //make a tree
-        Node* root = makeTree(letters, nums);
+    sort(uniq.begin(), uniq.end());
 
-
-        //stores codes
-        unordered_map<char, string> huffmanCode;
-        encode(root, "", huffmanCode);
-
-
-        //encoded binary in string
-        string str = "";
-        for (char ch: text.toStdString()) {
-            str += huffmanCode[ch];
-        }
-
-        //set output bits from encoded binary
-        QSharedPointer<BitArray> outputBits = QSharedPointer<BitArray>(new BitArray(str.length()));
-        for(int i = 0; i < str.length(); i++){
-            if(str[i] == '0'){
-                outputBits->set(i, 0);
+    //get frequencies
+    for(QString q : uniq){
+        freq.append(hex.count(q));
+    }
 
 
+    Node* root = makeTree(uniq, freq);
+
+    //stores codes
+    QMap<QString, string> huffmanCode;
+    encode(root, "", huffmanCode);
+
+
+/*
+
+    QMapIterator<QString, string> i(huffmanCode);
+    while (i.hasNext()) {
+        i.next();
+        //cout << i.key().toStdString() << ": " << i.value() << endl;
+    }
+*/
+
+
+    //encoded binary in string
+    string str = "";
+    for (QString ch: hex) {
+        str += huffmanCode[ch];
+    }
+
+    //get long list of 8bit characters
+    QVector<bool> chars;
+    for(QString q : uniq){
+        for(QChar qq : q){
+            if(qq == '0'){
+                chars.append(0);
             }else{
-                outputBits->set(i, 1);
-
+                chars.append(1);
             }
         }
+    }
 
 
-        QByteArray encoded = pre.toLatin1();
-        encoded.append("]?[");
-        encoded.append(QString::number(outputBits->sizeInBits()));
-        encoded.append("[?]");
-        encoded.append(outputBits->getPreviewBytes());
+    QSharedPointer<BitArray> outputBits = QSharedPointer<BitArray>(new BitArray(chars.size()));
+    QSharedPointer<BitArray> keys = QSharedPointer<BitArray>(new BitArray(str.length()));
 
+    //8 bit occurances
+    for(int i = 0; i < chars.size(); i++){
+        outputBits->set(i, chars.at(i));
+    }
 
-
-
-        bitContainer->setBits(encoded);
-        outputContainers.append(bitContainer);
+    //encoded garbage
+    for(int i = 0; i < str.length(); i++){
+        if(str[i] == '0'){
+            keys->set(i, 0);
+        }else{
+            keys->set(i, 1);
+        }
 
     }
 
+
+
+    //get metadata ready
+    QByteArray out;
+    out.append("~");
+    out.append(QString::number(bit/8));
+    // 8-1 16-2
+    out.append("~");
+
+    //size of encoded string
+    out.append(QString::number(str.length()));
+    out.append("|");
+
+    //frequency
+    for(int f : freq){
+        if(f>=123){
+            out.append("{");
+            out.append(QString::number(f));
+            out.append("}");
+        }else{
+            out.append(f);
+        }
+    }
+    out.append("^");
+
+    //8 bit occurances
+    out.append(outputBits->getPreviewBytes());
+
+    out.append("||");
+
+    //encoded garbage
+    out.append(keys->getPreviewBytes());
+
+    bitContainer->setBits(out);
+    outputContainers.append(bitContainer);
+
+    }
     return OperatorResult::result({outputContainers}, recallablePluginState);
 }
 
