@@ -40,8 +40,12 @@ void Compressor::provideCallback(QSharedPointer<PluginCallback> pluginCallback)
 void Compressor::applyToWidget(QWidget *widget)
 {
     ui->setupUi(widget);
-    ui->cb_type->addItem("Huffman 8-bit");
-    //connect(ui->rd_enc, SIGNAL(clicked()), this, SLOT(showHelp()));
+    if(ui->cb_type->currentIndex()==1){
+        ui->cb_huffOnly->setChecked(true);
+        ui->cb_huffOnly->setEnabled(false);
+    }
+    //connect(ui->cb_type, SIGNAL(currentTextChanged(QString)), this, SLOT(block()));
+   // connect(ui->cb_type, SIGNAL(currentTextChanged(QString)), this, SLOT(block()));
 }
 
 bool Compressor::canRecallPluginState(const QJsonObject &pluginState)
@@ -50,7 +54,9 @@ bool Compressor::canRecallPluginState(const QJsonObject &pluginState)
     if(pluginState.isEmpty()==true){
         return false;
     }
-
+    if(!pluginState.contains("huffOnly") || !pluginState.value("huffOnly").isBool()){
+        return false;
+    }
     return true;
 }
 
@@ -62,7 +68,7 @@ bool Compressor::setPluginStateInUi(const QJsonObject &pluginState)
 
     // Set the UI fields based on the plugin state
     ui->custom->setText(pluginState.value("message").toString());
-
+    ui->cb_huffOnly->setChecked(false);
     return true;
 }
 
@@ -72,6 +78,9 @@ QJsonObject Compressor::getStateFromUi()
 
     //Pull data from the input fields and input them into pluginState
     pluginState.insert("message", ui->custom->text());
+    pluginState.insert("type", ui->cb_type->currentIndex());
+    pluginState.insert("huffOnly", ui->cb_huffOnly->isChecked());
+
     return pluginState;
 }
 
@@ -160,6 +169,12 @@ void decode(Node* root, int &index, string str)
 
 
 // /////////////////////////////////////////////////////////////////////////////////////////
+static QMap<char, QChar> utf8Map = {
+    { 0x00, 0x002e }, //NULL print as period/full stop
+    { 0x01, 0x263a },
+    { 0xff, 0x0020 }  //NO-BREAK SPACE print as space
+};
+
 
 
 //makes binary tree from raw characters and their frequencies
@@ -191,13 +206,26 @@ Node* makeTree(QVector<QString> letters, QVector<int> nums) {
 
 
 
-void load(QByteArray inputBytes, QSharedPointer<const BitArray> input){
+void load(QByteArray inputBytes, QSharedPointer<const BitArray> input, QChar secondLetter){
 
+    int bit;
+    if(secondLetter == '1'){
+        bit = 8;
+    }else if(secondLetter == '2'){
+        bit = 16;
+    }
+
+    //size of coded frequencies
     int encSize = (inputBytes.mid(3, (inputBytes.indexOf("|")-3))).toInt();
 
+    //frequencies
     QVector<int> freq;
+    //every unique byte
     QVector<QVector<bool>> uniq;
+    //huffman code
     QVector<bool> garb;
+
+    //markers
     int startF = inputBytes.indexOf("|");
     int endF = inputBytes.indexOf("^");
 
@@ -218,12 +246,13 @@ void load(QByteArray inputBytes, QSharedPointer<const BitArray> input){
         }
     }
 
+
     //get the 8-bit codes
     int startC = (endF+1)*8;
     int endC = inputBytes.indexOf("||")*8;
-    for(int i = startC; i < endC; i+=8){
+    for(int i = startC; i < endC; i+=bit){
         QVector<bool> b;
-        for(int j = i; j < i+8; j++){
+        for(int j = i; j < i+bit; j++){
             b.append(input->at(j));
         }
         uniq.append(b);
@@ -241,6 +270,7 @@ void load(QByteArray inputBytes, QSharedPointer<const BitArray> input){
         }
     }
 
+    //put whats in uniq to uniq2 for ease of access
     QVector<QString> uniq2;
     QString qs = "";
     for(QVector<bool> qb : uniq){
@@ -282,14 +312,17 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
         const QJsonObject &recallablePluginState,
         QSharedPointer<ActionProgress> progressTracker)
 {
-    //QSharedPointer<OperatorResult> result(new OperatorResult());
-    //QSharedPointer<const OperatorResult> nullResult;
+
     QList<QSharedPointer<BitContainer>> outputContainers;
     QSharedPointer<const BitArray> inputBits = inputContainers.takeFirst()->bits();
     QSharedPointer<BitContainer> bitContainer = QSharedPointer<BitContainer>(new BitContainer());
-    QString message = recallablePluginState.value("message").toString();
+
+    //clears decoded message from last run
     decoded.clear();
 
+    QString message = recallablePluginState.value("message").toString();
+    bool huffOnly = recallablePluginState.value("huffOnly").toBool();
+    int type = recallablePluginState.value("type").toInt();
 
 
     QByteArray data = inputBits->getPreviewBytes();
@@ -297,11 +330,55 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
     //can use to experiment with 16 bit or 32 bit based encryption
     //larger bit means smaller huffman code but with larger metadata
     //bit must be divisible by 8
-    int bit = 8;
+    int bit;
+    if(type==0){
+        bit = 8;
+    }else if(type==1){
+        bit = 16;
+        //huffOnly = true;
+    }else{
+        //Run Length Encoding
+        int n;
+        QString letters;
+        if(message.isEmpty()){
+            n = data.length();
+            letters = data;
+        }else{
+            n = message.length();
+            letters = message;
+        }
+        QString rEncoded = "";
+
+        for (int i = 0; i < n; i++) {
+
+            // Count occurrences of current character
+            int count = 1;
+            while (i < n - 1 && letters[i] == letters[i + 1]) {
+                count++;
+                i++;
+            }
+
+            //store char and its count
+            rEncoded.append(letters[i]);
+            if(count>1){
+                rEncoded.append(QString::number(count));
+            }
+        }
+        rEncoded.insert(0, "~3~");
+        bitContainer->setBits(rEncoded.toLatin1());
+        outputContainers.append(bitContainer);
+        return OperatorResult::result({outputContainers}, recallablePluginState);
+
+    }
+
+
 
     //determine if file is encoded orn't
     if(data.at(0) == '~' && data.at(2) == '~'){
-        load(data, inputBits);
+        if(data.at(1) == '3'){
+            //if it's RLe
+        }
+        load(data, inputBits, data.at(1));
 
         QString dec;
         for(QString q : decoded){
@@ -320,140 +397,143 @@ QSharedPointer<const OperatorResult> Compressor::operateOnContainers(
     }else{
 
 
-    QString bits = "";
+        QString bits = "";
 
-    QVector<QString> hex;
-    QVector<QString> uniq;
-    QVector<int> freq;
+        QVector<QString> hex;
+        QVector<QString> uniq;
+        QVector<int> freq;
 
-    //convert to string of bits
-    //
-    for(int i = 0; i < inputBits->sizeInBits(); i++){
-        if(inputBits->at(i)){
-            bits.append("1");
-        }else{
-            bits.append("0");
-        }
-    }
-
-    //extract all bytes
-    for(int i = bit; i < bits.size() - (bits.size()%bit)+1; i+=bit){
-        if(i%bit == 0){
-            hex.append(bits.mid(i-bit, bit));
-        }
-    }
-
-    //unlikely to happen
-    if(bits.size()%bit!=0){
-        hex.append(bits.mid(bits.size()-(bits.size()%bit), bits.size()));
-    }
-
-    //remove repetitions
-    for(int i = 0; i < hex.size(); i++){
-        if(!uniq.contains(hex.at(i))){
-            uniq.append(hex.at(i));
-            i = 0;
-        }
-    }
-
-    sort(uniq.begin(), uniq.end());
-
-    //get frequencies
-    for(QString q : uniq){
-        freq.append(hex.count(q));
-    }
-
-
-    Node* root = makeTree(uniq, freq);
-
-    //stores codes
-    QMap<QString, string> huffmanCode;
-    encode(root, "", huffmanCode);
-
-
-/*
-
-    QMapIterator<QString, string> i(huffmanCode);
-    while (i.hasNext()) {
-        i.next();
-        //cout << i.key().toStdString() << ": " << i.value() << endl;
-    }
-*/
-
-
-    //encoded binary in string
-    string str = "";
-    for (QString ch: hex) {
-        str += huffmanCode[ch];
-    }
-
-    //get long list of 8bit characters
-    QVector<bool> chars;
-    for(QString q : uniq){
-        for(QChar qq : q){
-            if(qq == '0'){
-                chars.append(0);
+        //convert to string of bits
+        //
+        for(int i = 0; i < inputBits->sizeInBits(); i++){
+            if(inputBits->at(i)){
+                bits.append("1");
             }else{
-                chars.append(1);
+                bits.append("0");
             }
         }
-    }
 
-
-    QSharedPointer<BitArray> outputBits = QSharedPointer<BitArray>(new BitArray(chars.size()));
-    QSharedPointer<BitArray> keys = QSharedPointer<BitArray>(new BitArray(str.length()));
-
-    //8 bit occurances
-    for(int i = 0; i < chars.size(); i++){
-        outputBits->set(i, chars.at(i));
-    }
-
-    //encoded garbage
-    for(int i = 0; i < str.length(); i++){
-        if(str[i] == '0'){
-            keys->set(i, 0);
-        }else{
-            keys->set(i, 1);
+        //extract all bytes
+        for(int i = bit; i < bits.size() - (bits.size()%bit)+1; i+=bit){
+            if(i%bit == 0){
+                hex.append(bits.mid(i-bit, bit));
+            }
         }
 
-    }
-
-
-
-    //get metadata ready
-    QByteArray out;
-    out.append("~");
-    out.append(QString::number(bit/8));
-    // 8-1 16-2
-    out.append("~");
-
-    //size of encoded string
-    out.append(QString::number(str.length()));
-    out.append("|");
-
-    //frequency
-    for(int f : freq){
-        if(f>=123){
-            out.append("{");
-            out.append(QString::number(f));
-            out.append("}");
-        }else{
-            out.append(f);
+        //unlikely to happen but just in case
+        if(bits.size()%bit!=0){
+            hex.append(bits.mid(bits.size()-(bits.size()%bit), bits.size()));
         }
-    }
-    out.append("^");
 
-    //8 bit occurances
-    out.append(outputBits->getPreviewBytes());
+        //remove repetitions
+        for(int i = 0; i < hex.size(); i++){
+            if(!uniq.contains(hex.at(i))){
+                uniq.append(hex.at(i));
+                i = 0;
+            }
+        }
 
-    out.append("||");
+        sort(uniq.begin(), uniq.end());
 
-    //encoded garbage
-    out.append(keys->getPreviewBytes());
+        //get frequencies
+        for(QString q : uniq){
+            freq.append(hex.count(q));
+        }
 
-    bitContainer->setBits(out);
-    outputContainers.append(bitContainer);
 
+        Node* root = makeTree(uniq, freq);
+
+        //stores codes
+        QMap<QString, string> huffmanCode;
+        encode(root, "", huffmanCode);
+
+
+    /*
+
+        QMapIterator<QString, string> i(huffmanCode);
+        while (i.hasNext()) {
+            i.next();
+            //cout << i.key().toStdString() << ": " << i.value() << endl;
+        }
+    */
+
+
+        //encoded binary in string
+        string str = "";
+        for (QString ch: hex) {
+            str += huffmanCode[ch];
+        }
+
+        //get long list of n bit characters
+        QVector<bool> chars;
+        for(QString q : uniq){
+            for(QChar qq : q){
+                if(qq == '0'){
+                    chars.append(0);
+                }else{
+                    chars.append(1);
+                }
+            }
+        }
+
+
+        QSharedPointer<BitArray> outputBits = QSharedPointer<BitArray>(new BitArray(chars.size()));
+        QSharedPointer<BitArray> keys = QSharedPointer<BitArray>(new BitArray(str.length()));
+
+        //n bit occurances
+        for(int i = 0; i < chars.size(); i++){
+            outputBits->set(i, chars.at(i));
+        }
+
+        //encoded garbage
+        for(int i = 0; i < str.length(); i++){
+            if(str[i] == '0'){
+                keys->set(i, 0);
+            }else{
+                keys->set(i, 1);
+            }
+
+        }
+
+        if(huffOnly){
+            bitContainer->setBits(keys);
+            outputContainers.append(bitContainer);
+        }else{
+
+            //get metadata ready
+            QByteArray out;
+            out.append("~");
+            out.append(QString::number(bit/8));
+            // 8:1 16:2
+            out.append("~");
+
+            //size of encoded string
+            out.append(QString::number(str.length()));
+            out.append("|");
+
+            //frequency
+            for(int f : freq){
+                if(f>=123){
+                    out.append("{");
+                    out.append(QString::number(f));
+                    out.append("}");
+                }else{
+                    out.append(f);
+                }
+            }
+            out.append("^");
+
+            //8 bit occurances
+            out.append(outputBits->getPreviewBytes());
+
+            out.append("||");
+
+            //encoded garbage
+            out.append(keys->getPreviewBytes());
+
+            bitContainer->setBits(out);
+            outputContainers.append(bitContainer);
+        }
     }
     return OperatorResult::result({outputContainers}, recallablePluginState);
 }
@@ -462,4 +542,9 @@ void Compressor::previewBits(QSharedPointer<BitContainerPreview> container)
 {
     Q_UNUSED(container)
     // optionally use the current container to prepare the UI or something
+}
+
+void Compressor::on_cb_type_currentIndexChanged(int index)
+{
+
 }
