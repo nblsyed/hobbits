@@ -22,8 +22,17 @@
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QLineEdit" name="custom">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="inputMask">
+      <string/>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
      <property name="placeholderText">
-      <string>Don't Use</string>
+      <string>Custom text (optional and RLe only)</string>
      </property>
     </widget>
    </item>
@@ -73,7 +82,35 @@
       </size>
      </property>
      <property name="currentText">
-      <string/>
+      <string>Huffman 8-bit</string>
+     </property>
+     <property name="currentIndex">
+      <number>0</number>
+     </property>
+     <item>
+      <property name="text">
+       <string>Huffman 8-bit</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Huffman 16-bit</string>
+      </property>
+     </item>
+     <item>
+      <property name="text">
+       <string>Run-Length ASCII</string>
+      </property>
+     </item>
+    </widget>
+   </item>
+   <item>
+    <widget class="QCheckBox" name="cb_huffOnly">
+     <property name="enabled">
+      <bool>true</bool>
+     </property>
+     <property name="text">
+      <string>Encoded data only</string>
      </property>
     </widget>
    </item>
@@ -82,4 +119,3 @@
  <resources/>
  <connections/>
 </ui>
-
