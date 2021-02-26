@@ -10,21 +10,34 @@
 #include <QQueue>
 #include <QSettings>
 
+#include "displaywidget.h"
 #include "containerselectiondialog.h"
-#include "hobbitscoreinfo.h"
-#include "hobbitsguiinfo.h"
+#include "hobbitscoreconfig.h"
+#include "hobbitsguiconfig.h"
+#include "hobbitspythonconfig.h"
 #include "pluginactionlineage.h"
 #include "preferencesdialog.h"
 #include "settingsmanager.h"
 #include "batchcreationdialog.h"
+#include "abstractparametereditor.h"
+#include "parametereditordialog.h"
+#include "batcheditor.h"
+
+#ifdef HAS_EMBEDDED_PYTHON
+#include "pythonpluginconfig.h"
+#include "simpleparametereditor.h"
+#endif
 
 const int MAINWINDOW_STATE_VERSION = 1;
+
+static QString BATCH_EDITOR_SIZE_KEY = "batch_editor_size";
+static QString BATCH_EDITOR_POSITION_KEY = "batch_editor_pos";
 
 MainWindow::MainWindow(QString extraPluginPath, QString configFilePath, QWidget *parent) :
     QMainWindow(parent),
     ui(new Ui::MainWindow),
     m_extraPluginPath(extraPluginPath),
-    m_bitContainerManager(QSharedPointer<BitContainerManager>(new BitContainerManager())),
+    m_bitContainerManager(QSharedPointer<BitContainerManagerUi>(new BitContainerManagerUi())),
     m_pluginManager(QSharedPointer<HobbitsPluginManager>(new HobbitsPluginManager())),
     m_pluginActionManager(new PluginActionManager(m_pluginManager)),
     m_displayTabsSplitter(new QSplitter(Qt::Horizontal)),
@@ -35,23 +48,25 @@ MainWindow::MainWindow(QString extraPluginPath, QString configFilePath, QWidget 
     ui->setupUi(this);
 
     if (!configFilePath.isEmpty()) {
-        SettingsManager::getInstance().setConfigFilePath(configFilePath);
+        SettingsManager::setConfigFilePath(configFilePath);
     }
-    resize(SettingsManager::getInstance().getPrivateSetting(SettingsData::WINDOW_SIZE_KEY).toSize());
-    move(SettingsManager::getInstance().getPrivateSetting(SettingsData::WINDOW_POSITION_KEY).toPoint());
-    restoreState(SettingsManager::getInstance().getPrivateSetting(SettingsData::WINDOW_STATE_KEY).toByteArray(), MAINWINDOW_STATE_VERSION);
+    resize(SettingsManager::getPrivateSetting(SettingsManager::WINDOW_SIZE_KEY).toSize());
+    move(SettingsManager::getPrivateSetting(SettingsManager::WINDOW_POSITION_KEY).toPoint());
+    restoreState(SettingsManager::getPrivateSetting(SettingsManager::WINDOW_STATE_KEY).toByteArray(), MAINWINDOW_STATE_VERSION);
 
     // Populate View Menu
     ui->menu_View->addAction(ui->dock_bitContainerSelect->toggleViewAction());
     ui->menu_View->addAction(ui->dock_operatorPlugins->toggleViewAction());
-    ui->menu_View->addSeparator();
     ui->menu_View->addAction(ui->dock_findBits->toggleViewAction());
     ui->menu_View->addSeparator();
     ui->menu_View->addMenu(m_splitViewMenu);
 
+    ui->dock_bitContainerSelect->setContentsMargins(0, 0, 0, 0);
+    ui->dock_operatorPlugins->setContentsMargins(0, 0, 0, 0);
+    ui->dock_findBits->setContentsMargins(0, 0, 0, 0);
     ui->dock_bitContainerSelect->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_B));
     ui->dock_operatorPlugins->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_O));
-    ui->dock_findBits->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL + Qt::Key_A));
+    ui->dock_findBits->toggleViewAction()->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_A));
 
     // More menu initialization
     populateRecentBatchesMenu();
@@ -82,9 +97,6 @@ MainWindow::MainWindow(QString extraPluginPath, QString configFilePath, QWidget 
     });
     ui->tb_containersMenu->setMenu(containersMenu);
     ui->tb_containersMenu->setPopupMode(QToolButton::InstantPopup);
-
-    connect(ui->tb_containersMenu, &QPushButton::pressed, [this]() {
-    });
 
     // Configure Plugin Action Management
     connect(
@@ -127,42 +139,55 @@ MainWindow::MainWindow(QString extraPluginPath, QString configFilePath, QWidget 
 
     connect(
             m_pluginActionManager.data(),
+            &PluginActionManager::importerStarted,
+            this,
+            &MainWindow::pluginActionStarted);
+    connect(
+            m_pluginActionManager.data(),
+            &PluginActionManager::importerProgress,
+            this,
+            &MainWindow::pluginActionProgress);
+    connect(
+            m_pluginActionManager.data(),
+            &PluginActionManager::importerFinished,
+            this,
+            &MainWindow::pluginActionFinished);
+
+    connect(
+            m_pluginActionManager.data(),
+            &PluginActionManager::exporterStarted,
+            this,
+            &MainWindow::pluginActionStarted);
+    connect(
+            m_pluginActionManager.data(),
+            &PluginActionManager::exporterProgress,
+            this,
+            &MainWindow::pluginActionProgress);
+    connect(
+            m_pluginActionManager.data(),
+            &PluginActionManager::exporterFinished,
+            this,
+            &MainWindow::pluginActionFinished);
+
+    connect(
+            m_pluginActionManager.data(),
             SIGNAL(reportError(QString)),
             this,
             SLOT(warningMessage(QString)));
 
     // Configure display handle and plugin callback
     ui->displayScrollLayout->addWidget(m_previewScroll);
-    m_displayHandle = QSharedPointer<DisplayHandle>(
-            new DisplayHandle(
-                    m_bitContainerManager,
-                    ui->displayVScroll,
-                    ui->displayHScroll));
+    m_displayHandle = QSharedPointer<DisplayHandle>(new DisplayHandle(m_bitContainerManager));
+    m_displayHandle->setBitOffsetControl(ui->displayHScroll);
+    m_displayHandle->setFrameOffsetControl(ui->displayVScroll);
     connect(
             m_displayHandle.data(),
-            &DisplayHandle::newBitHover,
+            &DisplayHandle::newStatus,
             this,
-            &MainWindow::setHoverBit);
+            &MainWindow::setStatus);
 
     m_previewScroll->setBitContainerManager(m_bitContainerManager);
     m_previewScroll->setDisplayHandle(m_displayHandle);
-
-    m_pluginCallback = QSharedPointer<PluginCallback>(new PluginCallback(m_displayHandle));
-    connect(
-            m_pluginCallback.data(),
-            &PluginCallback::analyzerRunRequested,
-            this,
-            &MainWindow::requestAnalyzerRun);
-    connect(
-            m_pluginCallback.data(),
-            &PluginCallback::operatorRunRequested,
-            this,
-            &MainWindow::requestOperatorRun);
-    connect(
-            m_pluginCallback.data(),
-            &PluginCallback::operatorStateChanged,
-            this,
-            &MainWindow::checkOperatorInput);
 
     // load and initialize plugins
     loadPlugins();
@@ -176,6 +201,14 @@ MainWindow::MainWindow(QString extraPluginPath, QString configFilePath, QWidget 
     // create an initial state
     checkOperatorInput();
     activateBitContainer(currContainer(), QSharedPointer<BitContainer>());
+
+    m_batchEditor = new BatchEditor(m_pluginManager, this);
+    if (SettingsManager::getPrivateSetting(BATCH_EDITOR_SIZE_KEY).isValid()) {
+        m_batchEditor->resize(SettingsManager::getPrivateSetting(BATCH_EDITOR_SIZE_KEY).toSize());
+    }
+    if (SettingsManager::getPrivateSetting(BATCH_EDITOR_POSITION_KEY).isValid()) {
+        m_batchEditor->move(SettingsManager::getPrivateSetting(BATCH_EDITOR_POSITION_KEY).toPoint());
+    }
 }
 
 MainWindow::~MainWindow()
@@ -186,15 +219,18 @@ MainWindow::~MainWindow()
 const QString SPLIT_DISPLAY_SIZE_KEY = "split_display_size_list";
 void MainWindow::closeEvent(QCloseEvent *event)
 {
-    SettingsManager::getInstance().setPrivateSetting(SettingsData::WINDOW_SIZE_KEY, size());
-    SettingsManager::getInstance().setPrivateSetting(SettingsData::WINDOW_POSITION_KEY, pos());
-    SettingsManager::getInstance().setPrivateSetting(SettingsData::WINDOW_STATE_KEY, saveState(MAINWINDOW_STATE_VERSION));
+    SettingsManager::setPrivateSetting(SettingsManager::WINDOW_SIZE_KEY, size());
+    SettingsManager::setPrivateSetting(SettingsManager::WINDOW_POSITION_KEY, pos());
+    SettingsManager::setPrivateSetting(SettingsManager::WINDOW_STATE_KEY, saveState(MAINWINDOW_STATE_VERSION));
+
+    SettingsManager::setPrivateSetting(BATCH_EDITOR_SIZE_KEY, m_batchEditor->size());
+    SettingsManager::setPrivateSetting(BATCH_EDITOR_POSITION_KEY, m_batchEditor->pos());
 
     QStringList sizesAsStrings;
     for (int splitSize : m_displayTabsSplitter->sizes()) {
         sizesAsStrings.append(QString("%1").arg(splitSize));
     }
-    SettingsManager::getInstance().setPrivateSetting(SPLIT_DISPLAY_SIZE_KEY, sizesAsStrings);
+    SettingsManager::setPrivateSetting(SPLIT_DISPLAY_SIZE_KEY, sizesAsStrings);
 
     event->accept();
 }
@@ -208,7 +244,7 @@ void MainWindow::initializeDisplays()
     addDisplayGroup();
 
     // Add others and sizes if they were saved in the config
-    QVariant savedSizes = SettingsManager::getInstance().getPrivateSetting(SPLIT_DISPLAY_SIZE_KEY);
+    QVariant savedSizes = SettingsManager::getPrivateSetting(SPLIT_DISPLAY_SIZE_KEY);
     if (!savedSizes.isNull() && savedSizes.canConvert<QStringList>()) {
         QList<int> splitSizes;
         bool ok = true;
@@ -230,64 +266,29 @@ void MainWindow::initializeDisplays()
 
 void MainWindow::addDisplayGroup()
 {
-    QTabWidget *tabs = new QTabWidget(this);
-    tabs->setElideMode(Qt::ElideLeft);
-    tabs->setDocumentMode(true);
-
-    m_displayTabsSplitter->addWidget(tabs);
-
-    // Instantiate displays for this display set
-    QList<QSharedPointer<DisplayInterface>> displays;
-    QSet<QString> queued;
-    for (QString pluginString : SettingsManager::getInstance().getPluginLoaderSetting(
-            SettingsData::DISPLAY_DISPLAY_ORDER_KEY).toStringList()) {
-        QSharedPointer<DisplayInterface> plugin = m_pluginManager->getDisplay(pluginString.trimmed());
-        if (!plugin.isNull()) {
-            displays.append(QSharedPointer<DisplayInterface>(plugin->createDefaultDisplay()));
-            queued.insert(pluginString.trimmed());
-        }
-    }
-    for (QSharedPointer<DisplayInterface> plugin : m_pluginManager->getAllDisplays()) {
-        if (!queued.contains(plugin->getName())) {
-            displays.append(QSharedPointer<DisplayInterface>(plugin->createDefaultDisplay()));
-        }
-    }
-
-    // Add the widgets to the tabs
-    tabs->setUpdatesEnabled(false);
-    QPair<QMap<int, QSharedPointer<DisplayInterface>>, QTabWidget*> displayMap;
-    displayMap.second = tabs;
-    for (QSharedPointer<DisplayInterface> displayPlugin : displays) {
-        QWidget *display = displayPlugin->getDisplayWidget(m_displayHandle);
-        int idx = tabs->addTab(display, displayPlugin->getName());
-        displayMap.first.insert(idx, displayPlugin);
-    }
-    tabs->setUpdatesEnabled(true);
+    auto multiDisplay = new MultiDisplayWidget(m_pluginManager, m_displayHandle, this);
+    m_displayTabsSplitter->addWidget(multiDisplay);
 
     // Add this display group to the list of displays
-    m_displayMaps.append(displayMap);
+    m_displayWidgets.append(multiDisplay);
 
-    // Set up the display controls when necessary
-    if (displayMap.first.size() > 0) {
-        tabs->setCurrentIndex(0);
-        checkCurrentDisplays();
-    }
-    connect(tabs, SIGNAL(currentChanged(int)), this, SLOT(checkCurrentDisplays()));
-
+    // Set up the display controls
+    checkCurrentDisplays();
     setupSplitViewMenu();
+
+    connect(multiDisplay, SIGNAL(activeDisplayChanged(QSharedPointer<DisplayInterface>)), this, SLOT(checkCurrentDisplays()));
 }
 
 void MainWindow::removeDisplayGroup(int idx)
 {
-    if (idx <= 0 || idx >= m_displayMaps.length()) {
+    if (idx <= 0 || idx >= m_displayWidgets.length()) {
         warningMessage(QString("Cannot delete display group %1").arg(idx + 1));
         return;
     }
 
-    m_displayMaps.at(idx).second->deleteLater();
-    m_displayMaps.removeAt(idx);
+    auto multiDisplay = m_displayWidgets.takeAt(idx);
+    delete multiDisplay;
     checkCurrentDisplays();
-
     setupSplitViewMenu();
 }
 
@@ -295,7 +296,7 @@ void MainWindow::setupSplitViewMenu()
 {
     m_splitViewMenu->clear();
 
-    if (m_displayMaps.size() < 5) {
+    if (m_displayWidgets.size() < 5) {
         m_splitViewMenu->addAction(
                 "Add split view",
                 [this]() {
@@ -303,13 +304,13 @@ void MainWindow::setupSplitViewMenu()
         })->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_V));
     }
 
-    for (int i = 1; i < m_displayMaps.size(); i++) {
+    for (int i = 1; i < m_displayWidgets.size(); i++) {
         QAction *remove = m_splitViewMenu->addAction(
                 QString("Remove split view %1").arg(i + 1),
                 [this, i]() {
             this->removeDisplayGroup(i);
         });
-        if (i == m_displayMaps.size() - 1) {
+        if (i == m_displayWidgets.size() - 1) {
             remove->setShortcut(QKeySequence(Qt::CTRL + Qt::SHIFT + Qt::Key_X));
         }
     }
@@ -319,21 +320,27 @@ void MainWindow::initializeImporterExporters()
 {
     ui->menu_Import_Bits_From->clear();
     ui->menu_Export_Bits_To->clear();
-    for (QSharedPointer<ImportExportInterface> plugin : m_pluginManager->getAllImporterExporters()) {
+    for (QSharedPointer<ImporterExporterInterface> plugin : m_pluginManager->importerExporters()) {
         if (plugin->canImport()) {
             ui->menu_Import_Bits_From->setEnabled(true);
             ui->menu_Import_Bits_From->addAction(
-                    plugin->getName(),
+                    plugin->name(),
                     [this, plugin]() {
-                this->requestImportRun(plugin->getName());
+                QJsonObject parameters = ParameterEditorDialog::promptForParameters(plugin->importParameterDelegate());
+                if (!parameters.isEmpty()) {
+                    this->requestImportRun(plugin->name(), parameters);
+                }
             });
         }
         if (plugin->canExport()) {
             ui->menu_Export_Bits_To->setEnabled(true);
             ui->menu_Export_Bits_To->addAction(
-                    plugin->getName(),
+                    plugin->name(),
                     [this, plugin]() {
-                this->requestExportRun(plugin->getName());
+                QJsonObject parameters = ParameterEditorDialog::promptForParameters(plugin->exportParameterDelegate());
+                if (!parameters.isEmpty()) {
+                    this->requestExportRun(plugin->name(), parameters);
+                }
             });
         }
     }
@@ -350,39 +357,38 @@ void MainWindow::warningMessage(QString message, QString windowTitle)
 
 void MainWindow::checkCurrentDisplays()
 {
-
     for (auto controls : m_currControlWidgets) {
-        controls->setVisible(false);
         ui->displayControlsLayout->removeWidget(controls);
+        controls->deleteLater();
     }
     m_currControlWidgets.clear();
 
-    QSet<DisplayInterface*> focusDisplays;
-    for (auto displayMap : m_displayMaps) {
-        QSharedPointer<DisplayInterface> currDisplay = displayMap.first.value(
-                displayMap.second->currentIndex());
+    QSet<DisplayWidget*> activeDisplays;
+    for (auto multiDisplay : m_displayWidgets) {
+        QSharedPointer<DisplayInterface> currDisplay = multiDisplay->activeDisplay();
         if (!currDisplay.isNull()) {
-            focusDisplays.insert(currDisplay.data());
-
-            m_currControlWidgets.append(currDisplay->getControlsWidget(m_displayHandle));
+            activeDisplays.insert(multiDisplay->activeDisplayWidget());
+            auto controls = multiDisplay->createEditorForActiveDisplay();
+            if (controls) {
+                m_currControlWidgets.append(controls);
+            }
         }
     }
-    m_displayHandle->setFocusDisplays(focusDisplays);
+    m_displayHandle->setActiveDisplays(activeDisplays);
 
     for (auto controls : m_currControlWidgets) {
         ui->displayControlsLayout->addWidget(controls);
-        controls->setVisible(true);
     }
 }
 
 QSharedPointer<BitContainer> MainWindow::currContainer()
 {
-    return m_bitContainerManager->getCurrentContainer();
+    return m_bitContainerManager->currentContainer();
 }
 
 void MainWindow::importBitfile(QString file)
 {
-    QSharedPointer<ImportExportInterface> fileDataImporter = m_pluginManager->getImporterExporter("File Data");
+    QSharedPointer<ImporterExporterInterface> fileDataImporter = m_pluginManager->getImporterExporter("File Data");
     if (fileDataImporter.isNull()) {
         warningMessage("Could not import bit file without 'File Data' plugin");
         return;
@@ -394,9 +400,7 @@ void MainWindow::importBitfile(QString file)
 
 void MainWindow::importBytes(QByteArray rawBytes, QString name)
 {
-    QSharedPointer<BitContainer> bitContainer = QSharedPointer<BitContainer>(new BitContainer());
-    bitContainer->setBits(rawBytes);
-
+    auto bitContainer = BitContainer::create(rawBytes);
     bitContainer->setName(name);
 
     QModelIndex addedIndex = m_bitContainerManager->getTreeModel()->addContainer(bitContainer);
@@ -412,8 +416,13 @@ void MainWindow::on_pb_operate_clicked()
         warningMessage("Current Operator plugin cannot be determined");
         return;
     }
-    QJsonObject pluginState = op->getStateFromUi();
-    this->requestOperatorRun(op->getName(), pluginState);
+    AbstractParameterEditor *editor = m_operatorUiMap.value(op);
+    if (editor == nullptr) {
+        warningMessage("No editor initialized for plugin " + op->name());
+        return;
+    }
+    QJsonObject parameters = editor->parameters();
+    this->requestOperatorRun(op->name(), parameters);
 }
 
 void MainWindow::checkOperatorInput(QString pluginName)
@@ -425,18 +434,21 @@ void MainWindow::checkOperatorInput(QString pluginName)
     }
 
     if (!pluginName.isEmpty()) {
-        if (pluginName != op->getName()) {
+        if (pluginName != op->name()) {
             return;
         }
     }
 
-    QJsonObject pluginState = op->getStateFromUi();
-    if (pluginState.isEmpty()) {
+    AbstractParameterEditor *editor = m_operatorUiMap.value(op);
+    if (editor == nullptr) {
         ui->pb_operate->setEnabled(false);
+        return;
     }
-    else {
-        ui->pb_operate->setEnabled(true);
-    }
+
+    // TODO: either set this up in AbstractParameterEditor, or maybe just always have the button enabled
+    //ui->pb_operate->setEnabled(op->parameterDelegate()->validate(editor->parameters()));
+
+    ui->pb_operate->setEnabled(true);
 }
 
 QSharedPointer<OperatorInterface> MainWindow::getCurrentOperator()
@@ -446,24 +458,29 @@ QSharedPointer<OperatorInterface> MainWindow::getCurrentOperator()
 
 void MainWindow::loadPlugins()
 {
-    QVariant badPluginPath = SettingsManager::getInstance().getPrivateSetting(SettingsData::PLUGIN_RUNNING_KEY);
-    if (badPluginPath.isValid()) {
-        if (QMessageBox::question(
-                this,
-                "Blacklist Plugin?",
-                QString(
-                        "The plugin at '%1' was running when the application terminated.  Do you want to blacklist this plugin? You can always edit the blacklist in the Preferences.")
-                .arg(badPluginPath.toString())) == QMessageBox::Yes) {
-            QVariant oldBlacklist = SettingsManager::getInstance().getPluginLoaderSetting(
-                    SettingsData::PLUGIN_BLACKLIST_KEY);
-            QStringList blacklist;
-            if (oldBlacklist.isValid() && oldBlacklist.canConvert<QStringList>()) {
-                blacklist = oldBlacklist.toStringList();
+    QVariant badPluginPaths = SettingsManager::getPrivateSetting(SettingsManager::PLUGINS_RUNNING_KEY);
+    if (badPluginPaths.isValid() && badPluginPaths.canConvert<QStringList>()) {
+        QStringList badList = badPluginPaths.toStringList();
+        badList.removeDuplicates();
+        for (auto badPluginPath : badList) {
+            if (QMessageBox::question(
+                    this,
+                    "Blacklist Plugin?",
+                    QString(
+                            "The plugin at '%1' was running when the application terminated.  Do you want to blacklist this plugin? You can always edit the blacklist in the Preferences.")
+                    .arg(badPluginPath)) == QMessageBox::Yes) {
+                QVariant oldBlacklist = SettingsManager::getPluginLoaderSetting(
+                        SettingsManager::PLUGIN_BLACKLIST_KEY);
+                QStringList blacklist;
+                if (oldBlacklist.isValid() && oldBlacklist.canConvert<QStringList>()) {
+                    blacklist = oldBlacklist.toStringList();
+                }
+                blacklist.append(badPluginPath);
+                SettingsManager::setPluginLoaderSetting(SettingsManager::PLUGIN_BLACKLIST_KEY, blacklist);
             }
-            blacklist.append(badPluginPath.toString());
-            SettingsManager::getInstance().setPluginLoaderSetting(SettingsData::PLUGIN_BLACKLIST_KEY, blacklist);
         }
     }
+    SettingsManager::setPrivateSetting(SettingsManager::PLUGINS_RUNNING_KEY, QStringList());
 
     QStringList warnings;
     QStringList pluginPaths;
@@ -471,8 +488,10 @@ void MainWindow::loadPlugins()
         pluginPaths.append(m_extraPluginPath.split(":"));
     }
     pluginPaths.append(
-            SettingsManager::getInstance().getPluginLoaderSetting(
-                    SettingsData::PLUGIN_PATH_KEY).toString().split(":"));
+            SettingsManager::getPluginLoaderSetting(
+                    SettingsManager::PLUGIN_PATH_KEY).toString().split(":"));
+
+    QStringList pathBuffer;
     for (QString pluginPath : pluginPaths) {
 
         if (pluginPath.startsWith("~/")) {
@@ -481,6 +500,11 @@ void MainWindow::loadPlugins()
         else if (!pluginPath.startsWith("/")) {
             pluginPath = QApplication::applicationDirPath() + "/" + pluginPath;
         }
+        pathBuffer.append(pluginPath);
+    }
+    pluginPaths = pathBuffer;
+
+    for (QString pluginPath : pluginPaths) {
         warnings.append(m_pluginManager->loadPlugins(pluginPath));
     }
 
@@ -492,59 +516,89 @@ void MainWindow::loadPlugins()
         msg.exec();
     }
 
+#ifdef HAS_EMBEDDED_PYTHON
+    warnings.clear();
+    for (QString pluginPath : pluginPaths) {
+        warnings.append(PythonPluginConfig::loadPythonPlugins(pluginPath, m_pluginManager, [](QSharedPointer<ParameterDelegate> delegate, QSize size) {
+            Q_UNUSED(size)
+            return new SimpleParameterEditor(delegate, "Set Parameters");
+        }));
+    }
+
+    if (!warnings.isEmpty()) {
+        QMessageBox msg;
+        msg.setWindowTitle("Python Plugin Load Warnings");
+        msg.setText(warnings.join("\n"));
+        msg.setDefaultButton(QMessageBox::Ok);
+        msg.exec();
+    }
+#endif
+
 
     QSet<QString> queued;
 
     ui->operatorTabs->setUpdatesEnabled(false);
     QList<QSharedPointer<OperatorInterface>> operators;
     queued.clear();
-    for (QString pluginString : SettingsManager::getInstance().getPluginLoaderSetting(
-            SettingsData::OPERATOR_DISPLAY_ORDER_KEY).toStringList()) {
+    for (QString pluginString : SettingsManager::getPluginLoaderSetting(
+            SettingsManager::OPERATOR_DISPLAY_ORDER_KEY).toStringList()) {
         QSharedPointer<OperatorInterface> plugin = m_pluginManager->getOperator(pluginString.trimmed());
         if (!plugin.isNull()) {
             operators.append(plugin);
             queued.insert(pluginString.trimmed());
         }
     }
-    for (QSharedPointer<OperatorInterface> plugin : m_pluginManager->getAllOperators()) {
-        if (!queued.contains(plugin->getName())) {
+    for (QSharedPointer<OperatorInterface> plugin : m_pluginManager->operators()) {
+        if (!queued.contains(plugin->name())) {
             operators.append(plugin);
         }
     }
     for (QSharedPointer<OperatorInterface> op : operators) {
-        QWidget *opUi = new QWidget();
-        op->applyToWidget(opUi);
-        opUi->setAutoFillBackground(true);
-        int idx = ui->operatorTabs->addTab(opUi, op->getName());
+        AbstractParameterEditor *opUi = op->parameterDelegate()->createEditor();
+        if (opUi == nullptr) {
+            continue;
+        }
+        int idx = ui->operatorTabs->addTab(opUi, op->name());
         m_operatorMap.insert(idx, op);
-        op->provideCallback(m_pluginCallback);
+        m_operatorUiMap.insert(op, opUi);
+
+        opUi->giveDisplayHandle(m_displayHandle);
+        connect(opUi, &AbstractParameterEditor::accepted, [this, opUi, op]() {
+            this->requestOperatorRun(op->name(), opUi->parameters());
+        });
     }
     ui->operatorTabs->setUpdatesEnabled(true);
 
     ui->analyzerTabs->setUpdatesEnabled(false);
     QList<QSharedPointer<AnalyzerInterface>> analyzers;
     queued.clear();
-    for (QString pluginString : SettingsManager::getInstance().getPluginLoaderSetting(
-            SettingsData::ANALYZER_DISPLAY_ORDER_KEY).toStringList()) {
+    for (QString pluginString : SettingsManager::getPluginLoaderSetting(
+            SettingsManager::ANALYZER_DISPLAY_ORDER_KEY).toStringList()) {
         QSharedPointer<AnalyzerInterface> plugin = m_pluginManager->getAnalyzer(pluginString.trimmed());
         if (!plugin.isNull()) {
             analyzers.append(plugin);
             queued.insert(pluginString.trimmed());
         }
     }
-    for (QSharedPointer<AnalyzerInterface> plugin : m_pluginManager->getAllAnalyzers()) {
-        if (!queued.contains(plugin->getName())) {
+    for (QSharedPointer<AnalyzerInterface> plugin : m_pluginManager->analyzers()) {
+        if (!queued.contains(plugin->name())) {
             analyzers.append(plugin);
         }
     }
 
     for (QSharedPointer<AnalyzerInterface> analyzer : analyzers) {
-        QWidget *analysisUi = new QWidget();
-        analyzer->applyToWidget(analysisUi);
-        analysisUi->setAutoFillBackground(true);
-        int idx = ui->analyzerTabs->addTab(analysisUi, analyzer->getName());
+        AbstractParameterEditor *analysisUi = analyzer->parameterDelegate()->createEditor();
+        if (analysisUi == nullptr) {
+            continue;
+        }
+        int idx = ui->analyzerTabs->addTab(analysisUi, analyzer->name());
         m_analyzerMap.insert(idx, analyzer);
-        analyzer->provideCallback(m_pluginCallback);
+        m_analyzerUiMap.insert(analyzer, analysisUi);
+
+        analysisUi->giveDisplayHandle(m_displayHandle);
+        connect(analysisUi, &AbstractParameterEditor::accepted, [this, analysisUi, analyzer] {
+            this->requestAnalyzerRun(analyzer->name(), analysisUi->parameters());
+        });
     }
     ui->analyzerTabs->setUpdatesEnabled(true);
 }
@@ -570,37 +624,29 @@ void MainWindow::activateBitContainer(QSharedPointer<BitContainer> selected, QSh
 
 void MainWindow::currBitContainerChanged()
 {
-    if (m_previewMutex.tryLock()) {
-        sendBitContainerPreview();
-        m_previewMutex.unlock();
-    }
+    sendBitContainerPreview();
     checkOperatorInput();
 }
 
 void MainWindow::sendBitContainerPreview()
 {
-    for (QSharedPointer<AnalyzerInterface> analyzer : m_pluginManager->getAllAnalyzers()) {
-        if (currContainer().isNull()) {
-            analyzer->previewBits(QSharedPointer<BitContainerPreview>());
-        }
-        else {
-            analyzer->previewBits(
-                    QSharedPointer<BitContainerPreview>(
-                            new BitContainerPreview(
-                                    currContainer())));
-        }
+    QSharedPointer<BitContainerPreview> preview;
+    if (!currContainer().isNull()) {
+        preview = BitContainerPreview::wrap(currContainer());
     }
-    for (QSharedPointer<OperatorInterface> op : m_pluginManager->getAllOperators()) {
-        if (currContainer().isNull()) {
-            op->previewBits(QSharedPointer<BitContainerPreview>());
-        }
-        else {
-            op->previewBits(
-                    QSharedPointer<BitContainerPreview>(
-                            new BitContainerPreview(
-                                    currContainer())));
-        }
+    for (auto editor : m_analyzerUiMap.values()) {
+        QtConcurrent::run(MainWindow::processBitPreview, preview, editor);
     }
+    for (auto editor : m_operatorUiMap.values()) {
+        QtConcurrent::run(MainWindow::processBitPreview, preview, editor);
+    }
+}
+
+void MainWindow::processBitPreview(QSharedPointer<BitContainerPreview> preview, AbstractParameterEditor* editor)
+{
+    // TODO: show preview progress
+    QSharedPointer<PluginActionProgress> progress(new PluginActionProgress());
+    editor->previewBits(preview, progress);
 }
 
 void MainWindow::setCurrentBitContainer()
@@ -609,19 +655,22 @@ void MainWindow::setCurrentBitContainer()
 
     if (!currContainer().isNull()) {
         // Set the operator plugin settings used on this container
-        if (!currContainer()->getChildUuids().isEmpty()) {
+        if (!currContainer()->childUuids().isEmpty()) {
             QSet<QString> alreadySet;
-            auto outputs = currContainer()->getActionLineage()->outputOperators();
+            auto outputs = currContainer()->actionLineage()->outputOperators();
             for (int i = outputs.size() - 1; i >= 0; i--) {
                 auto output = outputs.at(i);
-                if (alreadySet.contains(output->getPluginName())) {
+                if (alreadySet.contains(output->pluginName())) {
                     continue;
                 }
-                auto op = m_pluginManager->getOperator(output->getPluginName());
+                auto op = m_pluginManager->getOperator(output->pluginName());
                 if (!op.isNull()) {
-                    QJsonObject pluginState = output->getPluginState();
-                    op->setPluginStateInUi(pluginState);
-                    alreadySet.insert(output->getPluginName());
+                    AbstractParameterEditor* editor = m_operatorUiMap.value(op);
+                    if (editor != nullptr) {
+                        QJsonObject parameters = output->parameters();
+                        editor->setParameters(parameters);
+                        alreadySet.insert(output->pluginName());
+                    }
                 }
             }
         }
@@ -662,24 +711,40 @@ void MainWindow::deleteAllBitContainers()
     m_bitContainerManager->deleteAllContainers();
 }
 
-void MainWindow::requestAnalyzerRun(QString pluginName, QJsonObject pluginState)
+void MainWindow::setStatus(QString status)
+{
+    ui->statusBar->showMessage(status);
+}
+
+void MainWindow::requestAnalyzerRun(QString pluginName, QJsonObject parameters)
 {
     if (!currContainer().isNull()) {
-        m_pluginActionManager->runAnalyzer(PluginAction::analyzerAction(pluginName, pluginState), currContainer());
+        if (parameters.isEmpty()) {
+            warningMessage(
+                    "The plugin is unable to act due to a bad input value",
+                    "Bad Plugin Input");
+            return;
+        }
+        m_pluginActionManager->runAnalyzer(PluginAction::analyzerAction(pluginName, parameters), currContainer());
     }
 }
 
-void MainWindow::requestOperatorRun(QString pluginName, QJsonObject pluginState)
+void MainWindow::requestOperatorRun(QString pluginName, QJsonObject parameters)
 {
     if (!currContainer().isNull()) {
+        if (parameters.isEmpty()) {
+            warningMessage(
+                    "The plugin is unable to act due to empty parameters",
+                    "Bad Plugin Input");
+            return;
+        }
+
         QSharedPointer<OperatorInterface> plugin = m_pluginManager->getOperator(pluginName);
         if (!plugin.isNull()) {
+
             QList<QSharedPointer<BitContainer>> inputContainers;
-            if (pluginState.isEmpty()) {
-                pluginState = plugin->getStateFromUi();
-            }
-            int minInputs = plugin->getMinInputContainers(pluginState);
-            int maxInputs = plugin->getMaxInputContainers(pluginState);
+            int minInputs = plugin->getMinInputContainers(parameters);
+            int maxInputs = plugin->getMaxInputContainers(parameters);
             if (maxInputs == 1 && minInputs == 1) {
                 inputContainers.append(currContainer());
             }
@@ -698,42 +763,34 @@ void MainWindow::requestOperatorRun(QString pluginName, QJsonObject pluginState)
                     return;
                 }
             }
-            if (pluginState.isEmpty()) {
-                pluginState = plugin->getStateFromUi();
-                if (pluginState.isEmpty()) {
-                    warningMessage(
-                            "The plugin is unable to act due to a bad input value",
-                            "Bad Plugin Input");
-                    return;
-                }
-            }
 
-            m_pluginActionManager->runOperator(PluginAction::operatorAction(pluginName, pluginState), inputContainers);
+            m_pluginActionManager->runOperator(PluginAction::operatorAction(pluginName, parameters), inputContainers);
         }
     }
 }
 
 void MainWindow::requestImportRun(QString pluginName, QJsonObject pluginState)
 {
-    auto result = m_pluginActionManager->runImporter(PluginAction::importerAction(pluginName, pluginState));
-    if (result.isNull()) {
+    auto runner = m_pluginActionManager->runImporter(PluginAction::importerAction(pluginName, pluginState));
+    if (runner.isNull()) {
+        warningMessage(QString("Failed to initialize importer '%1'").arg(pluginName));
         return;
     }
-    if (!result->hasEmptyState() && result->errorString().isEmpty()) {
-        this->populateRecentImportsMenu({pluginName, result->pluginState()});
-    }
+    m_pendingImports.insert(runner->id(), runner);
 }
 
 void MainWindow::requestExportRun(QString pluginName, QJsonObject pluginState)
 {
     if (currContainer().isNull()) {
-        warningMessage("Cannot export without a selected bit container");
+        warningMessage(QString("No container selected for export"));
         return;
     }
-    auto result = m_pluginActionManager->runExporter(PluginAction::exporterAction(pluginName, pluginState), currContainer());
-    if (!result->hasEmptyState() && result->errorString().isEmpty()) {
-        this->populateRecentExportsMenu({pluginName, result->pluginState()});
+    auto runner = m_pluginActionManager->runExporter(PluginAction::exporterAction(pluginName, pluginState), currContainer());
+    if (runner.isNull()) {
+        warningMessage(QString("Failed to initialize exporter '%1'").arg(pluginName));
+        return;
     }
+    m_pendingExports.insert(runner->id(), runner);
 }
 
 void MainWindow::on_pb_analyze_clicked()
@@ -743,117 +800,12 @@ void MainWindow::on_pb_analyze_clicked()
         warningMessage("Current Analyzer plugin cannot be determined");
         return;
     }
-    requestAnalyzerRun(plugin->getName(), plugin->getStateFromUi());
-}
-
-void MainWindow::setHoverBit(bool hovering, int bitOffset, int frameOffset)
-{
-    if (!hovering || frameOffset < 0 || bitOffset < 0 || currContainer().isNull()) {
-        this->statusBar()->showMessage("");
+    QJsonObject parameters;
+    AbstractParameterEditor *editor = m_analyzerUiMap.value(plugin);
+    if (editor != nullptr) {
+        parameters = editor->parameters();
     }
-    else {
-        qint64 totalBitOffset = currContainer()->frames().at(frameOffset).start() + bitOffset;
-        qint64 totalByteOffset = totalBitOffset / 8;
-        this->statusBar()->showMessage(
-                QString("Bit Offset: %L1  Byte Offset: %L2  Frame Offset: %L3  Frame Bit Offset: %L4").arg(
-                        totalBitOffset).arg(totalByteOffset).arg(frameOffset).arg(bitOffset));
-    }
-}
-
-void MainWindow::on_action_Save_Current_Container_triggered()
-{
-    if (currContainer().isNull()) {
-        warningMessage(
-                "You must first select a bit container in order to save it.",
-                "Cannot Save Container");
-        return;
-    }
-
-    QString fileName = QFileDialog::getSaveFileName(
-            this,
-            tr("Save Bit Container"),
-            SettingsManager::getInstance().getPrivateSetting(
-                    SettingsData::LAST_CONTAINER_PATH_KEY).toString(),
-            tr("Hobbits Bit Containers (*.hobbits_bits)"));
-    if (!fileName.endsWith(".hobbits_bits")) {
-        fileName += ".hobbits_bits";
-    }
-
-    QFile file(fileName);
-    SettingsManager::getInstance().setPrivateSetting(
-            SettingsData::LAST_CONTAINER_PATH_KEY,
-            QFileInfo(file).dir().path());
-
-    if (!file.open(QIODevice::WriteOnly)) {
-        warningMessage(
-                QString("Could not open file '%1' for writing").arg(fileName),
-                "Cannot Save Container");
-        return;
-    }
-
-    QDataStream out(&file);
-    out << *currContainer().data();
-    file.close();
-
-    if (out.status() != QDataStream::Status::Ok) {
-        warningMessage(
-                QString("Encountered errors while writing to file '%1'").arg(fileName),
-                "Error Saving Container");
-    }
-
-}
-
-QStringList MainWindow::openHobbitsBits(QString fileName)
-{
-    QFile file(fileName);
-    SettingsManager::getInstance().setPrivateSetting(
-            SettingsData::LAST_CONTAINER_PATH_KEY,
-            QFileInfo(file).dir().path());
-
-    if (!file.open(QIODevice::ReadOnly)) {
-        return QStringList(QString("Could not open hobbits bits file '%1'").arg(fileName));
-    }
-
-
-    QSharedPointer<BitContainer> bitContainer = QSharedPointer<BitContainer>(new BitContainer());
-    QDataStream in(&file);
-    in >> *bitContainer.data();
-    file.close();
-
-    if (in.status() != QDataStream::Status::Ok) {
-        return QStringList(
-                QString("Failure opening hobbits container file '%1'\nMaybe you meant to 'Import Bits'?").arg(
-                        fileName));
-    }
-
-    bitContainer->setName(QFileInfo(file).completeBaseName());
-
-    QModelIndex addedIndex = m_bitContainerManager->getTreeModel()->addContainer(bitContainer);
-    m_bitContainerManager->getCurrSelectionModel()->setCurrentIndex(
-            addedIndex,
-            QItemSelectionModel::ClearAndSelect);
-
-    return QStringList();
-}
-
-void MainWindow::on_actionOpen_Container_triggered()
-{
-    QString fileName = QFileDialog::getOpenFileName(
-            this,
-            tr("Open Bit Container"),
-            SettingsManager::getInstance().getPrivateSetting(
-                    SettingsData::LAST_CONTAINER_PATH_KEY).toString(),
-            tr("Hobbits Bit Containers (*.hobbits_bits)"));
-
-    if (fileName.isEmpty()) {
-        return;
-    }
-
-    QStringList errors = openHobbitsBits(fileName);
-
-    if (!errors.isEmpty()) {
-        warningMessage(errors.join("\n\n"), "Error Opening Container");
-    }
+    requestAnalyzerRun(plugin->name(), parameters);
 }
 
 void MainWindow::on_action_Apply_Batch_triggered()
@@ -861,7 +813,7 @@ void MainWindow::on_action_Apply_Batch_triggered()
     QString fileName = QFileDialog::getOpenFileName(
             this,
             tr("Apply Batch"),
-            SettingsManager::getInstance().getPrivateSetting(SettingsData::LAST_BATCH_PATH_KEY).toString(),
+            SettingsManager::getPrivateSetting(SettingsManager::LAST_BATCH_PATH_KEY).toString(),
             tr("Hobbits Batch Files (*.hobbits_batch)"));
     if (fileName.isEmpty()) {
         return;
@@ -872,7 +824,7 @@ void MainWindow::on_action_Apply_Batch_triggered()
 
 void MainWindow::on_action_Save_Batch_triggered()
 {
-    if (currContainer().isNull() || currContainer()->getActionLineage().isNull()) {
+    if (currContainer().isNull() || currContainer()->actionLineage().isNull()) {
         warningMessage(
                 "You must first select a bit container with children or a history of plugin operations in order to save a batch.",
                 "Cannot Save Batch");
@@ -885,7 +837,7 @@ void MainWindow::on_action_Save_Batch_triggered()
         return;
     }
 
-    auto batch = PluginActionBatch::fromLineage(currContainer()->getActionLineage(), batchDialog->getSelectedBatchMode());
+    auto batch = PluginActionBatch::fromLineage(currContainer()->actionLineage(), batchDialog->getSelectedBatchMode());
 
     if (batch.isNull() || batch->actionSteps().isEmpty()) {
         warningMessage(
@@ -894,41 +846,15 @@ void MainWindow::on_action_Save_Batch_triggered()
         return;
     }
 
-    QString fileName = QFileDialog::getSaveFileName(
-            this,
-            tr("Save Batch"),
-            SettingsManager::getInstance().getPrivateSetting(
-                    SettingsData::LAST_BATCH_PATH_KEY).toString(),
-            tr("Hobbits Batch Files (*.hobbits_batch)"));
-    if (fileName.isEmpty()) {
-        return;
-    }
-    if (!fileName.endsWith(".hobbits_batch")) {
-        fileName += ".hobbits_batch";
-    }
-
-
-    QFile file(fileName);
-    SettingsManager::getInstance().setPrivateSetting(
-            SettingsData::LAST_BATCH_PATH_KEY,
-            QFileInfo(file).dir().path());
-
-    if (!file.open(QIODevice::WriteOnly)) {
-        warningMessage(
-                QString("Could not open file '%1' for writing").arg(fileName),
-                "Cannot Save Batch");
-        return;
-    }
-
-    QJsonDocument json(batch->serialize());
-    file.write(json.toJson());
+    m_batchEditor->setBatch(batch);
+    m_batchEditor->show();
 }
 
 void MainWindow::applyBatchFile(QString fileName)
 {
     QFile file(fileName);
-    SettingsManager::getInstance().setPrivateSetting(
-            SettingsData::LAST_BATCH_PATH_KEY,
+    SettingsManager::setPrivateSetting(
+            SettingsManager::LAST_BATCH_PATH_KEY,
             QFileInfo(file).dir().path());
 
     if (!file.open(QIODevice::ReadOnly)) {
@@ -943,8 +869,7 @@ void MainWindow::applyBatchFile(QString fileName)
         return;
     }
 
-    int requiredInputs = batch->getMinRequiredInputs(m_pluginManager);
-    int maxInputs = batch->getMaxPossibleInputs(m_pluginManager);
+    int requiredInputs = batch->getRequiredInputs();
 
     QList<QSharedPointer<BitContainer>> inputs;
     if (requiredInputs == 1 && !currContainer().isNull()) {
@@ -952,27 +877,15 @@ void MainWindow::applyBatchFile(QString fileName)
     }
     else if (requiredInputs > 0) {
         auto selectionDialog = QSharedPointer<ContainerSelectionDialog>(new ContainerSelectionDialog(m_bitContainerManager, this));
-        if (requiredInputs == maxInputs) {
-            selectionDialog->setMessage(QString("Select %1 inputs for the batch").arg(requiredInputs));
-        }
-        else {
-            selectionDialog->setMessage(QString("Select between %1 and %2 inputs for the batch").arg(requiredInputs).arg(maxInputs));
-        }
+        selectionDialog->setMessage(QString("Select %1 inputs for the batch").arg(requiredInputs));
         if (!selectionDialog->exec()) {
             return;
         }
         inputs = selectionDialog->getSelected();
-        if (inputs.size() < requiredInputs) {
+        if (inputs.size() != requiredInputs) {
             warningMessage(
-                    QString("You must select at least %1 input containers (%2 selected)")
+                    QString("You must select %1 input containers (%2 selected)")
                     .arg(requiredInputs).arg(inputs.size()),
-                    "Invalid Input Count");
-            return;
-        }
-        else if (inputs.size() > maxInputs) {
-            warningMessage(
-                    QString("You must select at most %1 input containers (%2 selected)")
-                    .arg(maxInputs).arg(inputs.size()),
                     "Invalid Input Count");
             return;
         }
@@ -1002,6 +915,25 @@ void MainWindow::pluginActionStarted(QUuid id)
 
 void MainWindow::pluginActionFinished(QUuid id)
 {
+    if (m_pendingImports.contains(id)) {
+        auto runner = m_pendingImports.take(id);
+        auto result = runner->result();
+        if (!result.isNull()
+                && !result->hasEmptyParameters()
+                && result->errorString().isEmpty()) {
+            this->populateRecentImportsMenu({runner->pluginName(), result->parameters()});
+        }
+    }
+    else if (m_pendingExports.contains(id)) {
+        auto runner = m_pendingExports.take(id);
+        auto result = runner->result();
+        if (!result.isNull()
+                && !result->hasEmptyParameters()
+                && result->errorString().isEmpty()) {
+            this->populateRecentExportsMenu({runner->pluginName(), result->parameters()});
+        }
+    }
+
     if (!m_pluginProgress.contains(id)) {
         return;
     }
@@ -1020,16 +952,23 @@ void MainWindow::pluginActionProgress(QUuid id, int progress)
     m_pluginProgress.value(id)->progressBar->setValue(progress);
 }
 
+#ifdef HAS_EMBEDDED_PYTHON
+#include "hobbitspython.h"
+#endif
+
 void MainWindow::on_action_About_triggered()
 {
-    QString coreLibVersion = HobbitsCoreInfo::getLibVersion();
-    QString guiVersion = HobbitsGuiInfo::getGuiVersion();
+    QString coreLibVersion = HobbitsCoreConfig::VERSION;
+    QString guiVersion = HobbitsGuiConfig::VERSION;
+
+    QString info =  QString("Hobbits GUI Version: %1\nHobbits Core Version: %2").arg(guiVersion).arg(coreLibVersion);
+#ifdef HAS_EMBEDDED_PYTHON
+    info += QString("\nIntegrated Python: %1").arg(HobbitsPythonConfig::PYTHON_VERSION);
+#endif
 
     QMessageBox msg;
     msg.setWindowTitle("About Hobbits");
-    msg.setText(
-            QString("Hobbits GUI Version: %1\nHobbits Core Version: %2").arg(guiVersion).arg(
-                    coreLibVersion));
+    msg.setText(info);
     msg.setDefaultButton(QMessageBox::Ok);
     msg.setIconPixmap(QIcon(":/hobbitsgui/images/icons/HobbitsRingSmall.png").pixmap(64, 64));
     msg.exec();
@@ -1046,7 +985,7 @@ void MainWindow::populateRecentBatchesMenu(QString addition, QString removal)
     QString key = "recently_used_batches";
 
     QStringList recentlyUsed;
-    QVariant currentSetting = SettingsManager::getInstance().getPrivateSetting(key);
+    QVariant currentSetting = SettingsManager::getPrivateSetting(key);
     if (!currentSetting.isNull() && currentSetting.canConvert<QStringList>()) {
         recentlyUsed = currentSetting.toStringList();
     }
@@ -1062,7 +1001,7 @@ void MainWindow::populateRecentBatchesMenu(QString addition, QString removal)
 
     recentlyUsed = recentlyUsed.mid(0, 10);
 
-    SettingsManager::getInstance().setPrivateSetting(key, recentlyUsed);
+    SettingsManager::setPrivateSetting(key, recentlyUsed);
 
     ui->menuApply_Recent_Batch->clear();
     for (QString batchFile : recentlyUsed) {
@@ -1081,11 +1020,11 @@ void MainWindow::populateRecentImportsMenu(QPair<QString, QJsonObject> addition,
 {
     populatePluginActionMenu("recently_imported", ui->menuImport_Recent,
                              [this](QString pluginName, QJsonObject pluginState){
-        QSharedPointer<ImportExportInterface> plugin = this->m_pluginManager->getImporterExporter(pluginName);
+        QSharedPointer<ImporterExporterInterface> plugin = this->m_pluginManager->getImporterExporter(pluginName);
         if (plugin.isNull()) {
             return QString();
         }
-        return plugin->getImportLabelForState(pluginState);
+        return plugin->importParameterDelegate()->actionDescription(pluginState);
     },
     [this](QString pluginName, QJsonObject pluginState){
         this->requestImportRun(pluginName, pluginState);
@@ -1097,11 +1036,11 @@ void MainWindow::populateRecentExportsMenu(QPair<QString, QJsonObject> addition,
 {
     populatePluginActionMenu("recently_exported", ui->menuExport_Recent,
                              [this](QString pluginName, QJsonObject pluginState){
-        QSharedPointer<ImportExportInterface> plugin = this->m_pluginManager->getImporterExporter(pluginName);
+        QSharedPointer<ImporterExporterInterface> plugin = this->m_pluginManager->getImporterExporter(pluginName);
         if (plugin.isNull()) {
             return QString();
         }
-        return plugin->getExportLabelForState(pluginState);
+        return plugin->exportParameterDelegate()->actionDescription(pluginState);
     },
     [this](QString pluginName, QJsonObject pluginState){
         this->requestExportRun(pluginName, pluginState);
@@ -1131,7 +1070,7 @@ void MainWindow::populatePluginActionMenu(QString key, QMenu* menu,
     }
 
     QStringList recentlyExported;
-    QVariant currentSetting = SettingsManager::getInstance().getPrivateSetting(key);
+    QVariant currentSetting = SettingsManager::getPrivateSetting(key);
     if (!currentSetting.isNull() && currentSetting.canConvert<QStringList>()) {
         recentlyExported = currentSetting.toStringList();
     }
@@ -1147,7 +1086,7 @@ void MainWindow::populatePluginActionMenu(QString key, QMenu* menu,
 
     recentlyExported = recentlyExported.mid(0, 10);
 
-    SettingsManager::getInstance().setPrivateSetting(key, recentlyExported);
+    SettingsManager::setPrivateSetting(key, recentlyExported);
 
     int invalidStateCount = 0;
     menu->clear();
@@ -1176,7 +1115,7 @@ void MainWindow::populatePluginActionMenu(QString key, QMenu* menu,
     menu->setEnabled(recentlyExported.length() - invalidStateCount > 0);
 }
 
-void MainWindow::on_tb_scrollReset_clicked()
+void MainWindow::on_action_BatchEditor_triggered()
 {
-    m_displayHandle->setOffsets(0, 0);
+    m_batchEditor->show();
 }

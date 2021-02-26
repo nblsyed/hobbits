@@ -1,26 +1,80 @@
 #include "httpdata.h"
+#include <QMessageBox>
+#include "httpexportform.h"
+#include "httpimportform.h"
 
-HttpData::HttpData() :
-    http(nullptr)
+HttpData::HttpData()
 {
+    QList<ParameterDelegate::ParameterInfo> importInfos = {
+        {"url", QJsonValue::String},
+        {"verb", QJsonValue::String}
+    };
 
+    m_importDelegate = ParameterDelegate::create(
+                    importInfos,
+                    [](const QJsonObject &parameters) {
+                        if (parameters.contains("url")) {
+                            QString url = parameters.value("url").toString();
+                            if (url.size() > 16) {
+                                url.truncate(12);
+                                url += "...";
+                            }
+                            return QString("Import HTTP '%1'").arg(url);
+                        }
+                        else {
+                            return QString();
+                        }
+                    },
+                    [](QSharedPointer<ParameterDelegate> delegate, QSize size) {
+                        Q_UNUSED(size)
+                        return new HttpImportForm(delegate);
+                    });
+
+
+    QList<ParameterDelegate::ParameterInfo> exportInfos = {
+        {"url", QJsonValue::String},
+        {"formdataname", QJsonValue::String},
+        {"verb", QJsonValue::String}
+    };
+    m_exportDelegate = ParameterDelegate::create(
+                    exportInfos,
+                    [](const QJsonObject &parameters) {
+                        if (parameters.contains("url")) {
+                            QString url = parameters.value("url").toString();
+                            if (url.size() > 16) {
+                                url.truncate(12);
+                                url += "...";
+                            }
+                            return QString("Export HTTP '%1'").arg(url);
+                        }
+                        else {
+                            return QString();
+                        }
+                    },
+                    [](QSharedPointer<ParameterDelegate> delegate, QSize size) {
+                        Q_UNUSED(size)
+                        return new HttpExportForm(delegate);
+                    });
 }
 
-HttpData::~HttpData()
-{
-    if (http) {
-        delete http;
-    }
-}
-
-ImportExportInterface* HttpData::createDefaultImporterExporter()
+ImporterExporterInterface* HttpData::createDefaultImporterExporter()
 {
     return new HttpData();
 }
 
-QString HttpData::getName()
+QString HttpData::name()
 {
     return "HTTP Data (REST)";
+}
+
+QString HttpData::description()
+{
+    return "HTTP Importing and Exporting";
+}
+
+QStringList HttpData::tags()
+{
+    return {"Generic", "Network"};
 }
 
 bool HttpData::canExport()
@@ -33,61 +87,33 @@ bool HttpData::canImport()
     return true;
 }
 
-QString HttpData::getImportLabelForState(QJsonObject pluginState)
+QSharedPointer<ParameterDelegate> HttpData::importParameterDelegate()
 {
-    if (pluginState.contains("url")) {
-        QString url = pluginState.value("url").toString();
-        return QString("Import from %1").arg(url);
-    }
-    return "";
+    return m_importDelegate;
 }
 
-QString HttpData::getExportLabelForState(QJsonObject pluginState)
+QSharedPointer<ParameterDelegate> HttpData::exportParameterDelegate()
 {
-    Q_UNUSED(pluginState)
-    return "";
+    return m_exportDelegate;
 }
 
-QSharedPointer<ImportResult> HttpData::importBits(QJsonObject pluginState)
+QSharedPointer<ImportResult> HttpData::importBits(QJsonObject parameters,
+                                                  QSharedPointer<PluginActionProgress> progress)
 {
-    if (!http) {
-        http = new HttpTransceiver();
-    }
-    http->setDownloadMode();
-
-    if (pluginState.contains("url")) {
-        http->setUrl(QUrl(pluginState.value("url").toString()));
+    if (!m_importDelegate->validate(parameters)) {
+        return ImportResult::error("Invalid parameters passed to HTTP Import");
     }
 
-    if (http->exec()) {
-        auto container = QSharedPointer<BitContainer>(new BitContainer());
-        container->setBits(http->getDownloadedData());
-        container->setName(http->getUrl().toDisplayString());
-
-        pluginState.remove("url");
-        pluginState.insert("url", http->getUrl().toDisplayString());
-
-        return ImportResult::result(container, pluginState);
-    }
-
-    return ImportResult::nullResult();
+    return HttpImportForm::importData(parameters, progress);
 }
 
-QSharedPointer<ExportResult> HttpData::exportBits(QSharedPointer<const BitContainer> container, QJsonObject pluginState)
+QSharedPointer<ExportResult> HttpData::exportBits(QSharedPointer<const BitContainer> container,
+                                                  QJsonObject parameters,
+                                                  QSharedPointer<PluginActionProgress> progress)
 {
-    if (!http) {
-        http = new HttpTransceiver();
-    }
-    http->setUploadMode(container->bits()->getPreviewBytes());
-
-    if (pluginState.contains("url")) {
-        http->setUrl(QUrl(pluginState.value("url").toString()));
+    if (!m_exportDelegate->validate(parameters)) {
+        return ExportResult::error("Invalid parameters passed to HTTP Import");
     }
 
-    http->exec();
-
-    pluginState.remove("url");
-    pluginState.insert("url", http->getUrl().toDisplayString());
-
-    return ExportResult::result(pluginState);
+    return HttpExportForm::exportData(container->bits()->readBytes(0, 25000000), parameters, progress);
 }

@@ -2,6 +2,7 @@
 #include <cmath>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QPainterPath>
 
 PeakSelector::PeakSelector(QWidget *parent) :
     QWidget(parent),
@@ -51,7 +52,7 @@ void PeakSelector::paintEvent(QPaintEvent*)
 {
     QPainter painter(this);
 
-    painter.fillRect(0, 0, this->width(), this->height(), Qt::white);
+    painter.fillRect(0, 0, this->width(), this->height(), QColor("#1c1c1c"));
 
     if (m_data.isEmpty()) {
         return;
@@ -88,16 +89,16 @@ void PeakSelector::paintEvent(QPaintEvent*)
         path.lineTo(i + 1, maxY);
     }
 
-    QRgb lineColor = qRgb(30, 40, 180);
+    QRgb lineColor = qRgb(0xa3, 0xbe, 0xdb);
     painter.setRenderHint(QPainter::Antialiasing, true);
     painter.setPen(lineColor);
     painter.drawPath(path);
 
-    QFont font = QFont("monospace", 11);
+    QFont font = QFont("Roboto Mono", 11);
     font.setStyleStrategy(QFont::ForceIntegerMetrics);
     QFontMetrics fontMetrics = QFontMetrics(font, painter.device());
 
-    QFont bigFont = QFont("monospace", 12);
+    QFont bigFont = QFont("Roboto Mono", 12);
     bigFont.setStyleStrategy(QFont::ForceIntegerMetrics);
     QFontMetrics bigFontMetrics = QFontMetrics(bigFont, painter.device());
 
@@ -112,10 +113,10 @@ void PeakSelector::paintEvent(QPaintEvent*)
             painter.drawEllipse(peakPoint + QPointF(1, 0), 2, 2);
 
             painter.setOpacity(0.85);
-            painter.setPen(Qt::black);
+            painter.setPen(QColor("#eeeeee"));
             painter.setFont(bigFont);
             QString valString = QString("%1").arg(peak.x());
-            int textWidth = bigFontMetrics.width(valString);
+            int textWidth = bigFontMetrics.horizontalAdvance(valString);
             int textX = int(peakPoint.x() - textWidth/2);
             if (textX < textPad) {
                 textX = textPad;
@@ -127,19 +128,19 @@ void PeakSelector::paintEvent(QPaintEvent*)
         }
 
         painter.setOpacity(0.15);
-        painter.fillRect(m_startDrag, 0, m_endDrag - m_startDrag, this->height(), Qt::black);
+        painter.fillRect(m_startDrag, 0, m_endDrag - m_startDrag, this->height(), QColor("#eeeeee"));
     }
 
     if (!m_hover.isNull()) {
         painter.setOpacity(0.70);
-        painter.setPen(Qt::black);
+        painter.setPen(QColor("#eeeeee"));
         painter.drawLine(m_hover.x(), 0, m_hover.x(), this->height());
 
         int location = (m_hover.x() * m_zoomSlider->value()) + m_hScroll->value();
         if (location >= 0 && location < m_data.size()) {
             QString valString = QString("%1").arg(location);
             painter.setFont(font);
-            int textWidth = fontMetrics.width(valString);
+            int textWidth = fontMetrics.horizontalAdvance(valString);
             int textHeight = fontMetrics.height();
             int textX = m_hover.x() + textPad;
             if (textWidth + textX > this->width() - textPad) {

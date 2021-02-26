@@ -2,76 +2,55 @@
 #include "pluginactionlineage.h"
 #include "settingsmanager.h"
 #include <QBuffer>
-#include <QDebug>
 
-BitContainer::BitContainer(QObject *parent) :
-    QObject(parent),
+BitContainer::BitContainer() :
+    QObject(),
     m_name("Some Bits"),
     m_nameWasSet(false),
     m_id(QUuid::createUuid())
 {
-    setBitInfo(QSharedPointer<BitInfo>(new BitInfo()));
     setActionLineage(PluginActionLineage::actionlessLineage());
 }
 
-void BitContainer::setBits(QByteArray bytes, qint64 bitLen, QSharedPointer<BitInfo> bitInfo)
+QSharedPointer<BitContainer> BitContainer::create(QByteArray bytes, qint64 bitLen, QSharedPointer<const BitInfo> bitInfo)
 {
     QBuffer buffer(&bytes);
     buffer.open(QIODevice::ReadOnly);
-    setBits(&buffer, bitLen, bitInfo);
+    return create(&buffer, bitLen, bitInfo);
 }
 
-void BitContainer::setBits(QIODevice *readableBytes, qint64 bitLen, QSharedPointer<BitInfo> bitInfo)
+QSharedPointer<BitContainer> BitContainer::create(QIODevice *readableBytes, qint64 bitLen, QSharedPointer<const BitInfo> bitInfo)
 {
-    setBits(QSharedPointer<BitArray>(new BitArray(readableBytes, bitLen)), bitInfo);
+    return create(QSharedPointer<BitArray>(new BitArray(readableBytes, bitLen)), bitInfo);
 }
 
-void BitContainer::setBits(QSharedPointer<const BitArray> bits, QSharedPointer<BitInfo> bitInfo)
+QSharedPointer<BitContainer> BitContainer::create(QSharedPointer<const BitArray> bits, QSharedPointer<const BitInfo> bitInfo)
 {
-    setBits(QSharedPointer<BitArray>(new BitArray(*bits.data())), bitInfo);
+    return create(QSharedPointer<BitArray>(new BitArray(*bits.data())), bitInfo);
 }
 
-void BitContainer::setBits(QSharedPointer<BitArray> bits, QSharedPointer<BitInfo> bitInfo)
+QSharedPointer<BitContainer> BitContainer::create(QSharedPointer<BitArray> bits, QSharedPointer<const BitInfo> bitInfo)
+{
+    auto container = QSharedPointer<BitContainer>(new BitContainer());
+    container->m_bits = bits;
+    container->setInfo(bitInfo);
+    return container;
+}
+
+void BitContainer::setInfo(QSharedPointer<const BitInfo> bitInfo)
 {
     m_mutex.lock();
-    m_bits = bits;
-
-    if (bitInfo.isNull()) {
-        // Initialize frames
-        qint64 frameWidth = 256;
-        QVector<Range> frames;
-        for (qint64 i = 0; i < m_bits->sizeInBits(); i += frameWidth) {
-            qint64 width = qMin(frameWidth - 1, m_bits->sizeInBits() - i - 1);
-            frames.append(Range(i, i + width));
-        }
-        m_bitInfo->setFrames(frames);
+    if (!m_info.isNull()) {
+        disconnect(m_info.data(), nullptr, nullptr, nullptr);
     }
-    else {
-        m_bitInfo = bitInfo;
-    }
-    m_mutex.unlock();
-
-    setBitInfo(m_bitInfo);
-}
-
-void BitContainer::setBitInfo(QSharedPointer<BitInfo> bitInfo)
-{
-    if (bitInfo.isNull()) {
-        return;
-    }
-
-    m_mutex.lock();
-    if (!m_bitInfo.isNull()) {
-        disconnect(m_bitInfo.data(), SIGNAL(changed()), this, SIGNAL(changed()));
-    }
-
-    m_bitInfo = bitInfo->copyMetadata();
-    m_bitInfo->setBits(m_bits);
+    m_info = BitInfo::create(m_bits->sizeInBits(), bitInfo);
     m_mutex.unlock();
 
     emit changed();
 
-    connect(m_bitInfo.data(), SIGNAL(changed()), this, SIGNAL(changed()));
+    connect(m_info.data(), &BitInfo::changed, [this]() {
+        emit changed();
+    });
 }
 
 QSharedPointer<const BitArray> BitContainer::bits() const
@@ -79,54 +58,29 @@ QSharedPointer<const BitArray> BitContainer::bits() const
     return m_bits;
 }
 
-QSharedPointer<const BitInfo> BitContainer::bitInfo() const
+QSharedPointer<const BitInfo> BitContainer::info() const
 {
-    return m_bitInfo;
+    return m_info;
 }
 
-QSharedPointer<BitInfo> BitContainer::bitInfo()
+QSharedPointer<BitInfo> BitContainer::info()
 {
-    return m_bitInfo;
+    return m_info;
 }
 
-QVector<Frame> BitContainer::frames() const
+Frame BitContainer::frameAt(qint64 i) const
 {
-    if (m_bitInfo.isNull()) {
-        return QVector<Frame>();
-    }
-    else {
-        return m_bitInfo->frames();
-    }
+    return Frame(m_bits, m_info->frames()->at(i));
+}
+
+qint64 BitContainer::frameCount() const
+{
+    return m_info->frameCount();
 }
 
 qint64 BitContainer::maxFrameWidth() const
 {
-    if (m_bitInfo.isNull()) {
-        return 0;
-    }
-    else {
-        return m_bitInfo->maxFrameWidth();
-    }
-}
-
-void BitContainer::addHighlight(RangeHighlight highlight)
-{
-    m_bitInfo->addHighlight(highlight);
-}
-
-void BitContainer::addHighlights(QList<RangeHighlight> highlights)
-{
-    m_bitInfo->addHighlights(highlights);
-}
-
-void BitContainer::setMetadata(QString key, QVariant value)
-{
-    m_bitInfo->setMetadata(key, value);
-}
-
-void BitContainer::clearHighlightCategory(QString category)
-{
-    m_bitInfo->clearHighlightCategory(category);
+    return m_info->maxFrameWidth();
 }
 
 QString BitContainer::name() const
@@ -148,12 +102,12 @@ bool BitContainer::nameWasSet() const
     return m_nameWasSet;
 }
 
-QSharedPointer<const PluginActionLineage> BitContainer::getActionLineage() const
+QSharedPointer<const PluginActionLineage> BitContainer::actionLineage() const
 {
     return m_actionLineage;
 }
 
-QSharedPointer<PluginActionLineage> BitContainer::getActionLineage()
+QSharedPointer<PluginActionLineage> BitContainer::actionLineage()
 {
     return m_actionLineage;
 }
@@ -169,17 +123,17 @@ bool BitContainer::isRootContainer() const
     return m_parents.isEmpty();
 }
 
-QList<QUuid> BitContainer::getChildUuids() const
+QList<QUuid> BitContainer::childUuids() const
 {
     return m_children;
 }
 
-QList<QUuid> BitContainer::getParentUuids() const
+QList<QUuid> BitContainer::parentUuids() const
 {
     return m_parents;
 }
 
-QUuid BitContainer::getId() const
+QUuid BitContainer::id() const
 {
     return m_id;
 }
@@ -206,77 +160,4 @@ void BitContainer::addParent(QUuid parentId)
 {
     QMutexLocker lock(&m_mutex);
     m_parents.append(parentId);
-}
-
-QJsonDocument BitContainer::serializeJson() const
-{
-    QJsonObject root;
-    root.insert("size", m_bits->getPreviewSize());
-    root.insert("data", QString(m_bits->getPreviewBytes().toBase64()));
-    return QJsonDocument(root);
-}
-
-bool BitContainer::deserializeJson(QJsonDocument json)
-{
-    QJsonObject root = json.object();
-    if (!(root.contains("size")
-          && root.value("size").isDouble()
-          && root.contains("data")
-          && root.value("data").isString())) {
-        return false;
-    }
-
-    QByteArray data = QByteArray::fromBase64(root.value("data").toString().toLocal8Bit());
-    qint64 size = root.value("size").toInt();
-    if (size > data.length() * 8) {
-        return false;
-    }
-
-    setBits(data, size);
-    return true;
-}
-
-const QString VERSION_1 = "Really Good Hobbits Bit Container Serialization Format v1";
-const QString VERSION_2 = "Oh So Good Hobbits Bit Container Serialization Format v2";
-const QString VERSION_3 = "The Best Hobbits Bit Container Serialization Format v3";
-QDataStream& operator<<(QDataStream &stream, const BitContainer &container)
-{
-    stream << VERSION_3;
-    stream << *container.m_bitInfo.data();
-    stream << container.bits()->getPreviewSize();
-    stream << container.bits()->getPreviewBytes();
-
-    return stream;
-}
-
-QDataStream& operator>>(QDataStream &stream, BitContainer &container)
-{
-    QString version;
-    stream >> version;
-    if (version == VERSION_3) {
-        BitInfo bitInfo;
-        stream >> bitInfo;
-        int bitLength;
-        QByteArray bytes;
-        stream >> bitLength;
-        stream >> bytes;
-        container.setBits(bytes, bitLength, bitInfo.copyMetadata());
-    }
-    else if (version == VERSION_1 || version == VERSION_2) {
-        QMap<QString, Range> highlights;
-        QMap<QString, QString> metadata;
-        stream >> highlights;
-        stream >> metadata;
-        int bitLength;
-        QByteArray bytes;
-        stream >> bitLength;
-        stream >> bytes;
-        container.setBits(bytes, bitLength);
-    }
-    else {
-        stream.setStatus(QDataStream::Status::ReadCorruptData);
-        return stream;
-    }
-
-    return stream;
 }

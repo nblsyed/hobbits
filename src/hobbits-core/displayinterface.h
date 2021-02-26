@@ -1,28 +1,40 @@
 #ifndef DISPLAYINTERFACE_H
 #define DISPLAYINTERFACE_H
 
+#include "hobbitsplugin.h"
 #include <QSharedPointer>
-#include <QStringListModel>
+#include "parameterdelegate.h"
+#include "pluginactionprogress.h"
+#include "displayrenderconfig.h"
 
-#include "bitcontainer.h"
-#include "displayhandle.h"
+class QWidget;
+class DisplayHandle;
+class DisplayResult;
 
-#include "hobbits-core_global.h"
-
-class HOBBITSCORESHARED_EXPORT DisplayInterface
+/**
+  * @brief Implementations of the DisplayInterface plugin interface display BitContainer information
+  *
+  * \see BitContainer DisplayHandle
+*/
+class HOBBITSCORESHARED_EXPORT DisplayInterface : public virtual HobbitsPlugin
 {
 public:
-    virtual ~DisplayInterface()
-    {
-    }
+    virtual ~DisplayInterface() = default;
 
     virtual DisplayInterface* createDefaultDisplay() = 0;
 
-    virtual QString getName() = 0;
+    virtual QSharedPointer<DisplayRenderConfig> renderConfig() = 0;
+    virtual void setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle) = 0;
+    virtual QSharedPointer<ParameterDelegate> parameterDelegate() = 0;
 
-    virtual QWidget* getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle) = 0;
-    virtual QWidget* getControlsWidget(QSharedPointer<DisplayHandle> displayHandle) = 0;
+    virtual QSharedPointer<DisplayResult> renderDisplay(
+                QSize viewportSize,
+                const QJsonObject &parameters,
+                QSharedPointer<PluginActionProgress> progress) = 0;
 
+    virtual QSharedPointer<DisplayResult> renderOverlay(
+                QSize viewportSize,
+                const QJsonObject &parameters) = 0;
 };
 
 Q_DECLARE_INTERFACE(DisplayInterface, "hobbits.DisplayInterface")

@@ -2,8 +2,6 @@
 #define FREQUENCYPLOT_H
 
 #include "displayinterface.h"
-#include "frequencyplotcontrols.h"
-#include "frequencyplotwidget.h"
 
 class FrequencyPlot : public QObject, DisplayInterface
 {
@@ -14,17 +12,32 @@ class FrequencyPlot : public QObject, DisplayInterface
 public:
     FrequencyPlot();
 
-    DisplayInterface* createDefaultDisplay();
+    DisplayInterface* createDefaultDisplay() override;
 
-    QString getName();
+    QString name() override;
+    QString description() override;
+    QStringList tags() override;
 
-    QWidget* getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle);
-    QWidget* getControlsWidget(QSharedPointer<DisplayHandle> displayHandle);
+    QSharedPointer<DisplayRenderConfig> renderConfig() override;
+    void setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle) override;
+    QSharedPointer<ParameterDelegate> parameterDelegate() override;
+
+    QSharedPointer<DisplayResult> renderDisplay(
+            QSize viewportSize,
+            const QJsonObject &parameters,
+            QSharedPointer<PluginActionProgress> progress) override;
+
+    QSharedPointer<DisplayResult> renderOverlay(
+            QSize viewportSize,
+            const QJsonObject &parameters) override;
 
 private:
-    void initialize(QSharedPointer<DisplayHandle> displayHandle);
-    FrequencyPlotWidget* m_displayWidget;
-    FrequencyPlotControls* m_controlsWidget;
+    QSharedPointer<ParameterDelegate> m_delegate;
+    QSharedPointer<DisplayRenderConfig> m_renderConfig;
+    QSharedPointer<DisplayHandle> m_handle;
+
+    QMap<int, quint64> m_barMax;
+    QVector<int> m_barFrequencies;
 };
 
 #endif // FREQUENCYPLOT_H

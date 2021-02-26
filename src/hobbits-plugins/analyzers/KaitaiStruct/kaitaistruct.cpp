@@ -1,5 +1,5 @@
 #include "kaitaistruct.h"
-#include "ui_kaitaistruct.h"
+#include "kaitaistructform.h"
 #include "settingsmanager.h"
 #include <QStandardPaths>
 #include <QFileDialog>
@@ -8,24 +8,34 @@
 #include <QProcessEnvironment>
 #include <QJsonArray>
 #include <QDirIterator>
+#include "hobbitspython.h"
 
-const QString PYTHON_PATH_KEY = "python_runner_path";
-const QString KAITAI_PATH_KEY = "kaitai_struct_compiler_path";
-const QString KSY_PATH_KEY = "ksy_directory_path";
-const QString KAITAI_STRUCT_CATEGORY = "kaitai_struct";
-const QString KAITAI_RESULT_LABEL = "kaitai_struct_result_label";
-
-KaitaiStruct::KaitaiStruct() :
-    ui(new Ui::KaitaiStruct()),
-    m_loadKsyMenu(nullptr),
-    m_highlightNav(nullptr)
+KaitaiStruct::KaitaiStruct()
 {
-}
+    QList<ParameterDelegate::ParameterInfo> infos = {
+        {PARAM_KSY, QJsonValue::String, true},
+        {PARAM_PY, QJsonValue::String, true}
+    };
 
-KaitaiStruct::~KaitaiStruct()
-{
-    delete m_loadKsyMenu;
-    delete ui;
+    m_delegate = QSharedPointer<ParameterDelegateUi>(
+                new ParameterDelegateUi(
+                    infos,
+                    [](const QJsonObject &parameters) {
+                        if (parameters.contains("kaitai_struct_yaml")
+                                && !parameters.value("kaitai_struct_yaml").toString().isEmpty()) {
+                            return QString("Custom Kaitai Parse");
+                        }
+                        else if (parameters.contains("precompiled_py_file")
+                                 && !parameters.value("precompiled_py_file").toString().isEmpty()) {
+                            QFileInfo info(parameters.value("precompiled_py_file").toString());
+                            return QString("Kaitai Parse '%1'").arg(info.baseName());
+                        }
+                        return QString();
+                    },
+                    [](QSharedPointer<ParameterDelegate> delegate, QSize size) {
+                        Q_UNUSED(size)
+                        return new KaitaiStructForm(delegate);
+                    }));
 }
 
 AnalyzerInterface* KaitaiStruct::createDefaultAnalyzer()
@@ -33,192 +43,36 @@ AnalyzerInterface* KaitaiStruct::createDefaultAnalyzer()
     return new KaitaiStruct();
 }
 
-//Return name of operator
-QString KaitaiStruct::getName()
+QString KaitaiStruct::name()
 {
     return "Kaitai Struct";
 }
 
-void KaitaiStruct::provideCallback(QSharedPointer<PluginCallback> pluginCallback)
+QString KaitaiStruct::description()
 {
-    // the plugin callback allows the self-triggering of operateOnContainers
-    m_pluginCallback = pluginCallback;
-    if (m_highlightNav) {
-        m_highlightNav->setPluginCallback(m_pluginCallback);
-    }
+    return "Parses data using precompiled or custom Kaitai Struct specs";
 }
 
-void KaitaiStruct::applyToWidget(QWidget *widget)
+QStringList KaitaiStruct::tags()
 {
-    m_loadKsyMenu = new QMenu();
-    m_loadKsyMenu->addAction("Load File...", [this]() {
-        QString fileName = QFileDialog::getOpenFileName(
-                    nullptr,
-                    tr("Select ksy File"),
-                    SettingsManager::getInstance().getPrivateSetting(KSY_PATH_KEY).toString(),
-                    tr("Kaitai Struct File (*.ksy);;All Files (*)"));
-        if (fileName.isEmpty()) {
-            return;
-        }
-        QFile ksyFile(fileName);
-        if (!ksyFile.open(QIODevice::ReadOnly)) {
-            return;
-        }
-        SettingsManager::getInstance().setPrivateSetting(KSY_PATH_KEY, QFileInfo(ksyFile).path());
-        ui->te_ksy->setPlainText(ksyFile.readAll());
-    });
-
-    QDirIterator it(":/kaitaistruct/ksy", QDir::Dirs | QDir::NoDotAndDotDot);
-    while (it.hasNext()) {
-        QDir category = it.next();
-        QMenu* menu = m_loadKsyMenu->addMenu(category.dirName());
-        for (QFileInfo ksyFileInfo :category.entryInfoList(QDir::Files)) {
-            menu->addAction(ksyFileInfo.baseName(), [this, ksyFileInfo]() {
-                QFile ksyFile(ksyFileInfo.filePath());
-                if (!ksyFile.open(QIODevice::ReadOnly)) {
-                    return;
-                }
-                ui->te_ksy->setPlainText(ksyFile.readAll());
-            });
-        }
-    }
-
-    ui->setupUi(widget);
-
-    ui->pb_loadKsy->setMenu(m_loadKsyMenu);
-
-    connect(ui->tb_choosePython, SIGNAL(pressed()), this, SLOT(openPythonPathDialog()));
-    connect(ui->tb_chooseKsc, SIGNAL(pressed()), this, SLOT(openKscPathDialog()));
-    ui->le_python->setText(SettingsManager::getInstance().getPrivateSetting(PYTHON_PATH_KEY).toString());
-    ui->le_ksc->setText(SettingsManager::getInstance().getPrivateSetting(KAITAI_PATH_KEY).toString());
-
-    // Auto-locate if empty
-    if (ui->le_python->text().isEmpty()) {
-        QString pythonPath = QStandardPaths::findExecutable("python3");
-        if (!pythonPath.isEmpty()) {
-            ui->le_python->setText(pythonPath);
-            SettingsManager::getInstance().setPrivateSetting(PYTHON_PATH_KEY, pythonPath);
-        }
-        else {
-            pythonPath = QStandardPaths::findExecutable("python");
-            if (!pythonPath.isEmpty()) {
-                ui->le_python->setText(pythonPath);
-                SettingsManager::getInstance().setPrivateSetting(PYTHON_PATH_KEY, pythonPath);
-            }
-        }
-    }
-
-    m_highlightNav = new HighlightNavigator(widget);
-    ui->layout_nav->addWidget(m_highlightNav);
-    ui->layout_nav->addSpacerItem(new QSpacerItem(0, 0, QSizePolicy::Expanding, QSizePolicy::Minimum));
-
-    m_highlightNav->setContainer(m_previewContainer);
-    m_highlightNav->setPluginCallback(m_pluginCallback);
-    m_highlightNav->setHighlightCategory(KAITAI_STRUCT_CATEGORY);
-    m_highlightNav->setShouldHighlightSelection(true);
+    return {"Generic", "Integration"};
 }
 
-void KaitaiStruct::openPythonPathDialog()
+QSharedPointer<ParameterDelegate> KaitaiStruct::parameterDelegate()
 {
-    QString fileName = QFileDialog::getOpenFileName(
-            nullptr,
-            tr("Select Python"),
-            SettingsManager::getInstance().getPrivateSetting(PYTHON_PATH_KEY).toString(),
-            tr("Python (python*)"));
-    if (fileName.isEmpty()) {
-        return;
-    }
-    ui->le_python->setText(fileName);
-    SettingsManager::getInstance().setPrivateSetting(PYTHON_PATH_KEY, fileName);
-}
-
-void KaitaiStruct::openKscPathDialog()
-{
-    QString fileName = QFileDialog::getOpenFileName(
-            nullptr,
-            tr("Select Kaitai Struct Compiler"),
-            SettingsManager::getInstance().getPrivateSetting(KAITAI_PATH_KEY).toString(),
-            tr("KSC (ksc*, kaitai-struct-compiler*)"));
-    if (fileName.isEmpty()) {
-        return;
-    }
-    ui->le_ksc->setText(fileName);
-    SettingsManager::getInstance().setPrivateSetting(KAITAI_PATH_KEY, fileName);
-}
-
-bool KaitaiStruct::canRecallPluginState(const QJsonObject &pluginState)
-{
-    //if pluginState does not have required fields, return false
-    if(pluginState.isEmpty()==true){
-        return false;
-    }
-    if (!(pluginState.contains("katai_struct_yaml") && pluginState.value("katai_struct_yaml").isString())) {
-        return false;
-    }
-
-    return true;
-}
-
-bool KaitaiStruct::setPluginStateInUi(const QJsonObject &pluginState)
-{
-    if (!canRecallPluginState(pluginState)) {
-        return false;
-    }
-
-    // Set the UI fields based on the plugin state
-    ui->te_ksy->setPlainText(pluginState.value("katai_struct_yaml").toString());
-
-    return true;
-}
-
-QJsonObject KaitaiStruct::getStateFromUi()
-{
-    QJsonObject pluginState;
-    pluginState.insert("katai_struct_yaml", ui->te_ksy->toPlainText());
-    return pluginState;
-}
-
-void KaitaiStruct::previewBits(QSharedPointer<BitContainerPreview> container)
-{
-    m_previewContainer = container;
-    if (m_highlightNav) {
-        m_highlightNav->setContainer(m_previewContainer);
-        if (m_previewContainer.isNull()) {
-            m_highlightNav->setTitle("");
-        }
-        else {
-            QString resultLabel = m_previewContainer->bitInfo()->metadata(KAITAI_RESULT_LABEL).toString();
-            if (resultLabel.size() > 28) {
-                resultLabel.truncate(25);
-                resultLabel += "...";
-            }
-            m_highlightNav->setTitle(resultLabel);
-        }
-    }
+    return m_delegate;
 }
 
 QSharedPointer<const AnalyzerResult> KaitaiStruct::analyzeBits(
         QSharedPointer<const BitContainer> container,
-        const QJsonObject &recallablePluginState,
-        QSharedPointer<ActionProgress> progressTracker)
+        const QJsonObject &parameters,
+        QSharedPointer<PluginActionProgress> progress)
 {
-    QMetaObject::invokeMethod(this, "clearOutputText", Qt::QueuedConnection);
-
-    if (!canRecallPluginState(recallablePluginState)) {
+    if (!m_delegate->validate(parameters)) {
         return AnalyzerResult::error("Invalid parameters given to plugin");
     }
 
-    progressTracker->setProgressPercent(2);
-
-    QString pythonPath = SettingsManager::getInstance().getPrivateSetting(PYTHON_PATH_KEY).toString();
-    if (pythonPath.isEmpty()) {
-        return AnalyzerResult::error("A Python path must be specified");
-    }
-
-    QString kscPath = SettingsManager::getInstance().getPrivateSetting(KAITAI_PATH_KEY).toString();
-    if (kscPath.isEmpty()) {
-        return AnalyzerResult::error("A Kaitai Struct Compiler path must be specified");
-    }
+    progress->setProgressPercent(2);
 
     QTemporaryDir dir;
     if (!dir.isValid()) {
@@ -233,127 +87,111 @@ QSharedPointer<const AnalyzerResult> KaitaiStruct::analyzeBits(
     container->bits()->writeTo(&inputBitFile);
     inputBitFile.close();
 
-    progressTracker->setProgressPercent(10);
+    progress->setProgressPercent(10);
 
-    QString coreScriptName = dir.filePath("core_script.py");
-    QFile::copy(":/kaitaistruct/scripts/runner.py", coreScriptName);
-    QFile coreScriptFile(coreScriptName);
-    coreScriptFile.setPermissions(QFile::ReadOwner | QFile::ExeOwner | QFile::WriteOwner);
+    QString kscOutput = "";
 
-    QFile errorFile(dir.filePath("error.log"));
-    QFile stdoutFile(dir.filePath("stdout.log"));
+    if (parameters.contains(PARAM_KSY)
+            && !parameters.value(PARAM_KSY).toString().isEmpty()) {
+        QString kscPath = SettingsManager::getPrivateSetting(KAITAI_PATH_KEY).toString();
+        if (kscPath.isEmpty()) {
+            return AnalyzerResult::error("A Kaitai Struct Compiler path must be specified");
+        }
 
-    QFile ksy(dir.filePath("custom.ksy"));
-    if (!ksy.open(QIODevice::Truncate | QIODevice::WriteOnly)) {
-        return AnalyzerResult::error("Could not open ksy file for writing");
+        QFile errorFile(dir.filePath("error.log"));
+        QFile stdoutFile(dir.filePath("stdout.log"));
+
+        QFile ksy(dir.filePath("custom.ksy"));
+        if (!ksy.open(QIODevice::Truncate | QIODevice::WriteOnly)) {
+            return AnalyzerResult::error("Could not open ksy file for writing");
+        }
+        ksy.write(parameters.value(PARAM_KSY).toString().toLocal8Bit());
+        ksy.close();
+
+        progress->setProgressPercent(20);
+
+    #ifdef Q_OS_WIN
+        QStringList kscAgs = {"/C", kscPath, "--debug", "-t", "python", ksy.fileName()};
+    #else
+        QStringList kscAgs = {"--debug", "-t", "python", ksy.fileName()};
+    #endif
+        QProcess kscProcess;
+        QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+        QProcessEnvironment envUpdate;
+        envUpdate.insert("PATH", env.value("PATH"));
+        kscProcess.setProcessEnvironment(envUpdate);
+        kscProcess.setWorkingDirectory(dir.path());
+        kscProcess.setStandardErrorFile(errorFile.fileName());
+        kscProcess.setStandardOutputFile(stdoutFile.fileName());
+    #ifdef Q_OS_WIN
+        kscProcess.start("cmd.exe", kscAgs);
+    #else
+        kscProcess.start(kscPath, kscAgs);
+    #endif
+
+        kscProcess.waitForFinished();
+
+        QString stdOutput;
+        QString errorOutput;
+        if (errorFile.open(QIODevice::ReadOnly)) {
+            errorOutput = errorFile.readAll();
+            errorFile.close();
+            kscOutput += QString("stderr:\n%2").arg(errorOutput);
+        }
+
+        if (stdoutFile.open(QIODevice::ReadOnly)) {
+            stdOutput = stdoutFile.readAll();
+            stdoutFile.close();
+            kscOutput += QString("stdout:\n%2").arg(stdOutput);
+        }
+
+        if (!errorOutput.isEmpty()) {
+            return AnalyzerResult::error(QString("kaitai-struct-compiler error:\n%1").arg(kscOutput));
+        }
+
     }
-    ksy.write(recallablePluginState.value("katai_struct_yaml").toString().toLocal8Bit());
-    ksy.close();
-
-    progressTracker->setProgressPercent(20);
-
-#ifdef Q_OS_WIN
-    QStringList kscAgs = {"/C", kscPath, "--debug", "-t", "python", ksy.fileName()};
-#else
-    QStringList kscAgs = {"--debug", "-t", "python", ksy.fileName()};
-#endif
-    QProcess kscProcess;
-    QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-    QProcessEnvironment envUpdate;
-    envUpdate.insert("PATH", env.value("PATH"));
-    kscProcess.setProcessEnvironment(envUpdate);
-    kscProcess.setWorkingDirectory(dir.path());
-    kscProcess.setStandardErrorFile(errorFile.fileName());
-    kscProcess.setStandardOutputFile(stdoutFile.fileName());
-    kscProcess.start(kscPath, kscAgs);
-#ifdef Q_OS_WIN
-    kscProcess.start("cmd.exe", kscAgs);
-#else
-    kscProcess.start(kscPath, kscAgs);
-#endif
-
-    kscProcess.waitForFinished();
-
-    progressTracker->setProgressPercent(40);
-
-    if (errorFile.open(QIODevice::ReadOnly)) {
-        QString output = errorFile.readAll();
-        if (!output.isEmpty()) {
-            QMetaObject::invokeMethod(
-                    this,
-                    "updateOutputText",
-                    Qt::QueuedConnection,
-                    Q_ARG(QString, "kaitai-stuct-compiler stderr:\n" + output + "\n\n"));
-        }
-        errorFile.close();
+    else if (parameters.contains(PARAM_PY)
+             && !parameters.value(PARAM_PY).toString().isEmpty()) {
+        QString precompiledFilePath = parameters.value(PARAM_PY).toString();
+        QFileInfo info(precompiledFilePath);
+        QFile::copy(precompiledFilePath, dir.filePath(info.fileName()));
     }
-
-    if (stdoutFile.open(QIODevice::ReadOnly)) {
-        QString output = stdoutFile.readAll();
-        if (!output.isEmpty()) {
-            QMetaObject::invokeMethod(
-                    this,
-                    "updateOutputText",
-                    Qt::QueuedConnection,
-                    Q_ARG(QString, "kaitai-stuct-compiler stdout:\n" + output + "\n\n"));
-        }
-        stdoutFile.close();
-    }
-
-    QStringList pythonArgs = {coreScriptFile.fileName(), inputBitFile.fileName(), outputRangeFile.fileName()};
-    QProcess pythonProcess;
-    pythonProcess.setProcessEnvironment(envUpdate);
-    pythonProcess.setWorkingDirectory(dir.path());
-    pythonProcess.setStandardErrorFile(errorFile.fileName());
-    pythonProcess.setStandardOutputFile(stdoutFile.fileName());
-    pythonProcess.start(pythonPath, pythonArgs);
-
-    bool hasCancelled = false;
-    while (!pythonProcess.waitForFinished(250)) {
-        if (progressTracker->getCancelled() && !hasCancelled) {
-            QFile abortFile(dir.filePath("abort"));
-            abortFile.open(QIODevice::WriteOnly);
-            abortFile.close();
-            hasCancelled = true;
-        }
-        QFile progressFile(dir.filePath("progress"));
-        if (progressFile.exists()) {
-            if (progressFile.open(QIODevice::ReadOnly)) {
-                QJsonDocument progressData = QJsonDocument::fromJson((progressFile.readAll()));
-                QJsonObject progressJson = progressData.object();
-                if (progressJson.contains("progress") && progressJson.value("progress").isDouble()) {
-                    int progress = int(progressJson.value("progress").toDouble()/45.0);
-                    progressTracker->setProgressPercent(40 + progress);
-                }
-            }
-        }
+    else {
+        return AnalyzerResult::error("Invalid parameters - must have a precompiled py or a custom ksy spec");
     }
 
-    progressTracker->setProgressPercent(85);
+    progress->setProgressPercent(40);
 
-    if (errorFile.open(QIODevice::ReadOnly)) {
-        QString output = errorFile.readAll();
-        if (!output.isEmpty()) {
-            QMetaObject::invokeMethod(
-                    this,
-                    "updateOutputText",
-                    Qt::QueuedConnection,
-                    Q_ARG(QString, "Python stderr:\n" + output + "\n\n"));
-        }
-        errorFile.close();
+
+    QString pyDepDir = dir.filePath("pydeps");
+    HobbitsPython::recursiveDirCopy(":/kaitaistruct/scripts/dependencies", pyDepDir);
+
+    auto pyRequest = PythonRequest::create(":/kaitaistruct/scripts/runner.py")->setFunctionName("parse_data");
+    pyRequest->addPathExtension(pyDepDir);
+    pyRequest->addArg(PythonArg::qString(inputBitFile.fileName()));
+    pyRequest->addArg(PythonArg::qString(outputRangeFile.fileName()));
+    auto watcher = HobbitsPython::getInstance().runProcessScript(pyRequest, true);
+    watcher->watcher()->future().waitForFinished();
+    auto result = watcher->result();
+
+    QString output = "";
+    bool errors = false;
+    if (!result->getStdOut().isEmpty()) {
+        output += "Python stdout:\n" + result->getStdOut() + "\n\n";
+    }
+    if (!result->getStdErr().isEmpty()) {
+        errors = true;
+        output += "Python stderr:\n" + result->getStdErr() + "\n\n";
+    }
+    if (!result->errors().isEmpty()) {
+        errors = true;
+        output += "Other errors:\n" + result->errors().join("\n") + "\n\n";
+    }
+    if (errors) {
+        return AnalyzerResult::error(QString("Failure Running parser in Python:\n%1").arg(output));
     }
 
-    if (stdoutFile.open(QIODevice::ReadOnly)) {
-        QString output = stdoutFile.readAll();
-        if (!output.isEmpty()) {
-            QMetaObject::invokeMethod(
-                    this,
-                    "updateOutputText",
-                    Qt::QueuedConnection,
-                    Q_ARG(QString, "Python stdout:\n" + output + "\n\n"));
-        }
-        stdoutFile.close();
-    }
+    progress->setProgressPercent(85);
 
     if (!outputRangeFile.exists()) {
         QString errorString = "No analysis file was produced - check the Output tab to see if ksc or python produced any errors.";
@@ -376,7 +214,6 @@ QSharedPointer<const AnalyzerResult> KaitaiStruct::analyzeBits(
         return AnalyzerResult::error("Output analysis file doesn't contain a 'sections' specification");
     }
     QList<RangeHighlight> highlights;
-    m_highlightColorIdx = 0;
     QMap<QString, QPair<Range, QList<QString>>> labelMap;
     QList<QString> topLevel;
     QJsonArray sections = outputObj.value("sections").toArray();
@@ -407,17 +244,25 @@ QSharedPointer<const AnalyzerResult> KaitaiStruct::analyzeBits(
         }
     }
 
+    int colorIdx = 0;
     for (auto label : topLevel) {
-        highlights.append(makeHighlight(label, labelMap));
+        highlights.append(makeHighlight(label, labelMap, colorIdx));
     }
 
-    QSharedPointer<BitInfo> bitInfo = container->bitInfo()->copyMetadata();
+    QSharedPointer<BitInfo> bitInfo = BitInfo::copyFromContainer(container);
     bitInfo->addHighlights(highlights);
 
-    return AnalyzerResult::result(bitInfo, recallablePluginState);
+    if (!kscOutput.isEmpty()) {
+        bitInfo->setMetadata(KSC_OUT_LABEL, kscOutput);
+    }
+    if (!output.isEmpty()) {
+        bitInfo->setMetadata(PYTHON_OUT_LABEL, output);
+    }
+
+    return AnalyzerResult::result(bitInfo, parameters);
 }
 
-RangeHighlight KaitaiStruct::makeHighlight(QString label, const QMap<QString, QPair<Range, QList<QString>>> &rangeData)
+RangeHighlight KaitaiStruct::makeHighlight(QString label, const QMap<QString, QPair<Range, QList<QString>>> &rangeData, int &colorIdx)
 {
     QList<QColor> colors = {
         QColor(100, 220, 100, 85),
@@ -428,32 +273,20 @@ RangeHighlight KaitaiStruct::makeHighlight(QString label, const QMap<QString, QP
     };
     auto pair = rangeData.value(label);
     if (pair.second.isEmpty()) {
-        auto highlight = RangeHighlight(KAITAI_STRUCT_CATEGORY, label, pair.first, colors.at(m_highlightColorIdx));
-        m_highlightColorIdx = (m_highlightColorIdx + 1) % colors.size();
+        auto highlight = RangeHighlight(KAITAI_STRUCT_CATEGORY, label, pair.first, colors.at(colorIdx).rgba());
+        colorIdx = (colorIdx + 1) % colors.size();
         return highlight;
     }
     else {
-        int parentColorIndex = m_highlightColorIdx;
-        m_highlightColorIdx = 0;
+        int parentColorIndex = colorIdx;
+        colorIdx = 0;
         QList<RangeHighlight> children;
         for (auto child : pair.second) {
-            children.append(makeHighlight(child, rangeData));
+            children.append(makeHighlight(child, rangeData, colorIdx));
         }
-        m_highlightColorIdx = parentColorIndex;
-        auto highlight = RangeHighlight(KAITAI_STRUCT_CATEGORY, label, children, colors.at(m_highlightColorIdx));
-        m_highlightColorIdx = (m_highlightColorIdx + 1) % colors.size();
+        colorIdx = parentColorIndex;
+        auto highlight = RangeHighlight(KAITAI_STRUCT_CATEGORY, label, children, colors.at(colorIdx).rgba());
+        colorIdx = (colorIdx + 1) % colors.size();
         return highlight;
     }
-}
-
-
-void KaitaiStruct::updateOutputText(QString text)
-{
-    ui->te_output->appendPlainText(text);
-    ui->tabWidget->setCurrentIndex(1);
-}
-
-void KaitaiStruct::clearOutputText()
-{
-    ui->te_output->clear();
 }

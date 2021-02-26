@@ -2,8 +2,6 @@
 #define DIGRAPHPLOT_H
 
 #include "displayinterface.h"
-#include "digraphplotcontrols.h"
-#include "digraphplotwidget.h"
 
 class DigraphPlot : public QObject, DisplayInterface
 {
@@ -14,17 +12,29 @@ class DigraphPlot : public QObject, DisplayInterface
 public:
     DigraphPlot();
 
-    DisplayInterface* createDefaultDisplay();
+    DisplayInterface* createDefaultDisplay() override;
 
-    QString getName();
+    QString name() override;
+    QString description() override;
+    QStringList tags() override;
 
-    QWidget* getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle);
-    QWidget* getControlsWidget(QSharedPointer<DisplayHandle> displayHandle);
+    QSharedPointer<DisplayRenderConfig> renderConfig() override;
+    void setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle) override;
+    QSharedPointer<ParameterDelegate> parameterDelegate() override;
+
+    QSharedPointer<DisplayResult> renderDisplay(
+            QSize viewportSize,
+            const QJsonObject &parameters,
+            QSharedPointer<PluginActionProgress> progress) override;
+
+    QSharedPointer<DisplayResult> renderOverlay(
+            QSize viewportSize,
+            const QJsonObject &parameters) override;
 
 private:
-    void initialize(QSharedPointer<DisplayHandle> displayHandle);
-    DigraphPlotWidget* m_displayWidget;
-    DigraphPlotControls* m_controlsWidget;
+    QSharedPointer<ParameterDelegate> m_delegate;
+    QSharedPointer<DisplayRenderConfig> m_renderConfig;
+    QSharedPointer<DisplayHandle> m_handle;
 };
 
 #endif // DIGRAPHPLOT_H

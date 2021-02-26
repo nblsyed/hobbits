@@ -33,11 +33,11 @@ ColorMapModel::ColorMapModel(QObject *parent) :
     };
 
     for (auto pair : defaultColors) {
-        QVariant colorVar = SettingsManager::getInstance().getPrivateSetting(pair.first);
+        QVariant colorVar = SettingsManager::getPrivateSetting(pair.first);
         QColor c;
         if (colorVar.isNull() || !colorVar.canConvert<QColor>()) {
             c.setNamedColor(pair.second);
-            SettingsManager::getInstance().setPrivateSetting(pair.first, QVariant(c));
+            SettingsManager::setPrivateSetting(pair.first, QVariant(c));
             m_defaultColors.append(c);
         }
         else {
@@ -82,6 +82,23 @@ void ColorMapModel::setRemapLength(int length)
 QList<QPair<QString, QColor>> ColorMapModel::getMappings()
 {
     return m_mappings;
+}
+
+void ColorMapModel::setMappings(QList<QPair<QString, QColor> > mappings)
+{
+    beginRemoveRows(QModelIndex(), 0, m_mappings.length() - 1);
+    m_mappings.clear();
+    endRemoveRows();
+
+    beginInsertRows(QModelIndex(), 0, mappings.length() - 1);
+    m_mappings = mappings;
+    endInsertRows();
+
+    for (int i = 0; i < m_mappings.size(); i++) {
+        if (m_mappings.at(i).second.isValid()) {
+            SettingsManager::setPrivateSetting(COLOR[i % 8], m_mappings.at(i).second);
+        }
+    }
 }
 
 QVariant ColorMapModel::headerData(int section, Qt::Orientation orientation, int role) const
@@ -131,12 +148,12 @@ QVariant ColorMapModel::data(const QModelIndex &index, int role) const
         }
     }
     else if (role == Qt::FontRole) {
-        return QFont("monospace", 12);
+        return QFont("Roboto Mono");
     }
     else if (role == Qt::BackgroundRole) {
         return m_mappings.at(index.row()).second;
     }
-    else if (role == Qt::ForegroundRole) {
+    else if (role == Qt::ForegroundRole && index.column() == 1) {
         QColor color = m_mappings.at(index.row()).second;
         if (color.lightnessF() > 0.5) {
             return QColor(Qt::black);
@@ -158,7 +175,7 @@ bool ColorMapModel::setData(const QModelIndex &index, const QVariant &value, int
                 index.row(),
                 QPair<QString, QColor>(m_mappings.at(index.row()).first, value.value<QColor>()));
 
-        SettingsManager::getInstance().setPrivateSetting(COLOR[index.row() % 8], value);
+        SettingsManager::setPrivateSetting(COLOR[index.row() % 8], value);
 
         emit dataChanged(index, index, QVector<int>() << role);
         return true;

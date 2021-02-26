@@ -1,11 +1,15 @@
 #ifndef RANGEHIGHLIGHT_H
 #define RANGEHIGHLIGHT_H
 
-#include <QColor>
 #include <QString>
 #include "range.h"
 #include "hobbits-core_global.h"
 
+/**
+  * @brief The RangeHighlight class defines a Range with some additional, display-oriented metadata
+  *
+  * \see Range BitInfo
+*/
 class HOBBITSCORESHARED_EXPORT RangeHighlight
 {
 public:
@@ -14,13 +18,15 @@ public:
     RangeHighlight(const RangeHighlight &) = default;
     RangeHighlight &operator=(const RangeHighlight &) = default;
 
-    RangeHighlight(QString category, QString label, Range range, QColor color, QList<RangeHighlight> children = {});
-    RangeHighlight(QString category, QString label, QList<RangeHighlight> children, QColor color);
+    RangeHighlight(QString category, QString label, Range range, quint32 color, QList<RangeHighlight> children = {});
+    RangeHighlight(QString category, QString label, QList<RangeHighlight> children, quint32 color);
+
+    static RangeHighlight simple(QString category, QString label, Range range, quint32 color);
 
     QString label() const;
     QString category() const;
     Range range() const;
-    QColor color() const;
+    quint32 color() const;
     QList<RangeHighlight> children() const;
     QList<RangeHighlight> allDescendants() const;
 
@@ -31,7 +37,7 @@ private:
     QString m_category;
     QString m_label;
     Range m_range;
-    QColor m_color;
+    quint32 m_color;
     QList<RangeHighlight> m_children;
 };
 

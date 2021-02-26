@@ -1,10 +1,36 @@
 #include "byteraster.h"
+#include "byterastercontrols.h"
+#include "displayhelper.h"
+#include <QPainter>
+#include <QtMath>
+#include "displayresult.h"
 
 ByteRaster::ByteRaster() :
-    m_displayWidget(nullptr),
-    m_controlsWidget(nullptr)
+    m_renderConfig(new DisplayRenderConfig())
 {
+    m_renderConfig->setFullRedrawTriggers(DisplayRenderConfig::NewBitOffset | DisplayRenderConfig::NewFrameOffset);
+    m_renderConfig->setOverlayRedrawTriggers(DisplayRenderConfig::NewBitHover);
 
+    QList<ParameterDelegate::ParameterInfo> infos = {
+        {"scale", QJsonValue::Double},
+        {"show_headers", QJsonValue::Bool}
+    };
+
+    m_delegate = ParameterDelegate::create(
+                    infos,
+                    [](const QJsonObject &parameters) {
+                        int scale = parameters.value("scale").toInt();
+                        if (parameters.value("show_headers").toBool()) {
+                            return QString("Byte Raster %1x with headers").arg(scale);
+                        }
+                        else {
+                            return QString("Byte Raster %1x without headers").arg(scale);
+                        }
+                    },
+                    [](QSharedPointer<ParameterDelegate> delegate, QSize size) {
+                        Q_UNUSED(size)
+                        return new ByteRasterControls(delegate);
+                    });
 }
 
 DisplayInterface* ByteRaster::createDefaultDisplay()
@@ -12,30 +38,128 @@ DisplayInterface* ByteRaster::createDefaultDisplay()
     return new ByteRaster();
 }
 
-QString ByteRaster::getName()
+QString ByteRaster::name()
 {
     return "Byte Raster";
 }
 
-QWidget* ByteRaster::getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle)
+QString ByteRaster::description()
 {
-    initialize(displayHandle);
-    return m_displayWidget;
+    return "Displays each byte in the data as a single colored pixel";
 }
 
-QWidget* ByteRaster::getControlsWidget(QSharedPointer<DisplayHandle> displayHandle)
+QStringList ByteRaster::tags()
 {
-    initialize(displayHandle);
-    return m_controlsWidget;
+    return {"Generic"};
 }
 
-void ByteRaster::initialize(QSharedPointer<DisplayHandle> displayHandle)
+QSharedPointer<DisplayRenderConfig> ByteRaster::renderConfig()
 {
-    if (!m_displayWidget) {
-        m_displayWidget = new ByteRasterWidget(displayHandle, this);
-        m_controlsWidget = new ByteRasterControls();
+    return m_renderConfig;
+}
 
-        connect(m_controlsWidget, SIGNAL(scaleSet(int)), m_displayWidget, SLOT(setScale(int)));
-        connect(m_controlsWidget, SIGNAL(showHeadersChanged(bool)), m_displayWidget, SLOT(setShowHeaders(bool)));
+void ByteRaster::setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle)
+{
+    m_handle = displayHandle;
+    DisplayHelper::connectHoverUpdates(this, this, m_handle, [this](QPoint& offset, QSize &symbolSize, int &grouping, int &bitsPerSymbol) {
+        if (!m_delegate->validate(m_lastParams)) {
+            return false;
+        }
+        int scale = m_lastParams.value("scale").toInt();
+        offset = headerOffset(m_lastParams);
+        symbolSize = QSize(scale, scale);
+        grouping = 1;
+        bitsPerSymbol = 8;
+        return true;
+    });
+}
+
+QSharedPointer<ParameterDelegate> ByteRaster::parameterDelegate()
+{
+    return m_delegate;
+}
+
+QSharedPointer<DisplayResult> ByteRaster::renderDisplay(QSize viewportSize, const QJsonObject &parameters, QSharedPointer<PluginActionProgress> progress)
+{
+    Q_UNUSED(progress)
+    m_lastParams = parameters;
+
+    if (!m_delegate->validate(parameters)) {
+        m_handle->setRenderedRange(this, Range());
+        return DisplayResult::error("Invalid parameters");
     }
+    if (m_handle.isNull() || m_handle->currentContainer().isNull()) {
+        m_handle->setRenderedRange(this, Range());
+        return DisplayResult::nullResult();
+    }
+
+    int scale = parameters.value("scale").toInt();
+    if (scale < 1) {
+        return DisplayResult::error(QString("Invalid scale value: %1").arg(scale));
+    }
+    QPoint offset = headerOffset(parameters);
+    QSize rasterSize(viewportSize.width() - offset.x(), viewportSize.height() - offset.y());
+    QSize sourceSize(qMax(1, rasterSize.width() / scale), qMax(1, rasterSize.height() / scale));
+
+    QImage raster = DisplayHelper::getByteRasterImage(
+                m_handle->currentContainer(),
+                m_handle->bitOffset(),
+                m_handle->frameOffset(),
+                sourceSize.width(),
+                sourceSize.height());
+
+    QImage destImage(viewportSize, QImage::Format_ARGB32);
+    destImage.fill(Qt::transparent);
+    QPainter painter(&destImage);
+    painter.translate(offset);
+    painter.scale(scale, scale);
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.drawImage(0, 0, raster);
+
+    painter.resetTransform();
+    painter.translate(offset);
+    QSize highlightSize(sourceSize.width() * 8, sourceSize.height());
+    DisplayHelper::drawHighlights(
+                m_handle,
+                &painter,
+                QSizeF(double(scale) / 8.0, scale),
+                highlightSize,
+                (m_handle->bitOffset() / 8) * 8,
+                m_handle->frameOffset(),
+                1);
+
+    DisplayHelper::setRenderRange(this, m_handle, sourceSize.height());
+
+    return DisplayResult::result(destImage, parameters);
+}
+
+QSharedPointer<DisplayResult> ByteRaster::renderOverlay(QSize viewportSize, const QJsonObject &parameters)
+{
+    m_lastParams = parameters;
+    if (!m_delegate->validate(m_lastParams)) {
+        return DisplayResult::error("Invalid parameters");
+    }
+    int scale = parameters.value("scale").toInt();
+
+    auto overlay = DisplayHelper::drawHeadersFull(
+                viewportSize,
+                headerOffset(parameters),
+                m_handle,
+                QSizeF(double(scale) / 8.0, scale));
+
+    return DisplayResult::result(overlay, parameters);
+}
+
+QPoint ByteRaster::headerOffset(const QJsonObject &parameters)
+{
+    if (!parameters.value("show_headers").toBool() || m_handle->currentContainer().isNull()) {
+        return QPoint(0, 0);
+    }
+
+    auto font = DisplayHelper::monoFont(10);
+    auto container = m_handle->currentContainer();
+    auto margin = DisplayHelper::textSize(font, "0").width() * 2;
+    return  QPoint(
+                DisplayHelper::textSize(font, container->frameCount()).width() + margin,
+                DisplayHelper::textSize(font, container->maxFrameWidth()).width() + margin);
 }

@@ -2,13 +2,9 @@
 #define BITCONTAINER_H
 
 #include "frame.h"
-
-#include <QBitArray>
-#include <QColor>
 #include <QJsonDocument>
 #include <QMap>
 #include <QObject>
-#include <QPixmap>
 #include <QSharedPointer>
 #include <QUuid>
 #include "bitinfo.h"
@@ -18,6 +14,16 @@
 class PluginActionLineage;
 class PluginAction;
 
+/**
+  * @brief The BitContainer class manages bitwise data and the metadata associated with it
+  *
+  * The BitContainer class is mostly a simple wrapper around the BitArray and BitInfo classes
+  * which provide bitwise data and metadata management respectively. It also maintains a unique
+  * ID, parent-child relationships, and a PluginActionLineage for reconstructing the steps that
+  * were taken to create the BitContainer.
+  *
+  * \see BitArray BitInfo PluginActionLineage
+*/
 class HOBBITSCORESHARED_EXPORT BitContainer : public QObject
 {
     Q_OBJECT
@@ -25,56 +31,46 @@ class HOBBITSCORESHARED_EXPORT BitContainer : public QObject
     // this lets OperatorActor set the container's ID when necessary
     friend class OperatorActor;
 
-public slots:
-    void setBits(QIODevice *readableBytes, qint64 bitLen = -1, QSharedPointer<BitInfo> bitInfo=QSharedPointer<BitInfo>());
-    void setBits(QByteArray bytes, qint64 bitLen = -1, QSharedPointer<BitInfo> bitInfo=QSharedPointer<BitInfo>());
-    void setBits(QSharedPointer<const BitArray> bits, QSharedPointer<BitInfo> bitInfo=QSharedPointer<BitInfo>());
-    void setBits(QSharedPointer<BitArray> bits, QSharedPointer<BitInfo> bitInfo=QSharedPointer<BitInfo>());
-    void setBitInfo(QSharedPointer<BitInfo>);
-
 public:
-    explicit BitContainer(QObject *parent = nullptr);
+    static QSharedPointer<BitContainer> create(QByteArray bytes, qint64 bitLen = -1, QSharedPointer<const BitInfo> info=QSharedPointer<const BitInfo>());
+    static QSharedPointer<BitContainer> create(QIODevice *readableBytes, qint64 bitLen = -1, QSharedPointer<const BitInfo> info=QSharedPointer<const BitInfo>());
+    static QSharedPointer<BitContainer> create(QSharedPointer<const BitArray> bits, QSharedPointer<const BitInfo> info=QSharedPointer<const BitInfo>());
+    static QSharedPointer<BitContainer> create(QSharedPointer<BitArray> bits, QSharedPointer<const BitInfo> info=QSharedPointer<const BitInfo>());
+
+    void setInfo(QSharedPointer<const BitInfo> info);
 
     QSharedPointer<const BitArray> bits() const;
-    QSharedPointer<const BitInfo> bitInfo() const;
-    QSharedPointer<BitInfo> bitInfo();
+    QSharedPointer<const BitInfo> info() const;
+    QSharedPointer<BitInfo> info();
 
-    QVector<Frame> frames() const;
+    Frame frameAt(qint64 i) const;
+    qint64 frameCount() const;
     qint64 maxFrameWidth() const;
-
-    void addHighlight(RangeHighlight highlight);
-    void addHighlights(QList<RangeHighlight> highlights);
-    void setMetadata(QString key, QVariant value);
-    void clearHighlightCategory(QString category);
 
     QString name() const;
     void setName(QString name);
     bool nameWasSet() const;
 
     void setActionLineage(QSharedPointer<PluginActionLineage> lineage);
-    QSharedPointer<const PluginActionLineage> getActionLineage() const;
-    QSharedPointer<PluginActionLineage> getActionLineage();
+    QSharedPointer<const PluginActionLineage> actionLineage() const;
+    QSharedPointer<PluginActionLineage> actionLineage();
 
     bool isRootContainer() const;
-    QList<QUuid> getChildUuids() const;
-    QList<QUuid> getParentUuids() const;
-    QUuid getId() const;
+    QList<QUuid> childUuids() const;
+    QList<QUuid> parentUuids() const;
+    QUuid id() const;
     void detachChild(QUuid childId);
     void detachParent(QUuid parentId);
     void addChild(QUuid childId);
     void addParent(QUuid parentId);
 
-    QJsonDocument serializeJson() const;
-    bool deserializeJson(QJsonDocument json);
-
-    friend HOBBITSCORESHARED_EXPORT QDataStream& operator<<(QDataStream&, const BitContainer&);
-    friend HOBBITSCORESHARED_EXPORT QDataStream& operator>>(QDataStream&, BitContainer&);
-
 private:
+    explicit BitContainer();
+
     QString m_name;
     bool m_nameWasSet;
     QSharedPointer<BitArray> m_bits;
-    QSharedPointer<BitInfo> m_bitInfo;
+    QSharedPointer<BitInfo> m_info;
 
     QSharedPointer<PluginActionLineage> m_actionLineage;
 
@@ -83,7 +79,7 @@ private:
     QList<QUuid> m_parents;
     QMutex m_mutex;
 
-signals:
+Q_SIGNALS:
     void changed();
 };
 

@@ -1,3 +1,191 @@
+## [0.46.2](https://github.com/Mahlet-Inc/hobbits/compare/v0.46.1...v0.46.2) (2021-02-02)
+
+
+### Bug Fixes
+
+* prevent duplicate release file names ([5f5ec94](https://github.com/Mahlet-Inc/hobbits/commit/5f5ec947cdf59fd198368764d5308b91da16b37e))
+
+## [0.46.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.46.0...v0.46.1) (2021-02-02)
+
+
+### Bug Fixes
+
+* update release file globs ([db61841](https://github.com/Mahlet-Inc/hobbits/commit/db61841037cbdcc4b0e24d942bc4e9d14885b9c7))
+
+# [0.46.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.45.0...v0.46.0) (2021-02-02)
+
+
+### Features
+
+* from 0.45.0 - python exporter plugins and some bug fixes ([dbf0011](https://github.com/Mahlet-Inc/hobbits/commit/dbf001108a5999c932ab4db5ec8e4eb28b218c54))
+
+# [0.45.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.44.1...v0.45.0) (2021-02-02)
+
+
+### Bug Fixes
+
+*  [Mac] update python library version in build ([0d8673e](https://github.com/Mahlet-Inc/hobbits/commit/0d8673e7b700813bccd9c1d0ae83c8d6aedba097))
+* prevent python config from deallocating before init ([289b073](https://github.com/Mahlet-Inc/hobbits/commit/289b073aeec4a70d43e6c90ed7d4f35f0b0664d8))
+
+
+### Features
+
+* add python exporter plugin support ([9dec63c](https://github.com/Mahlet-Inc/hobbits/commit/9dec63c4d60729c68af34a20f0ab6274e3095c54))
+
+## [0.44.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.44.0...v0.44.1) (2020-12-18)
+
+
+### Bug Fixes
+
+* prevent DisplayPrint from crashing hobbits-runner ([bd93eee](https://github.com/Mahlet-Inc/hobbits/commit/bd93eeeb9933ebc5244dd8f7a70fa8f51a2b0f28))
+
+# [0.44.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.43.0...v0.44.0) (2020-12-17)
+
+
+### Features
+
+* [api] improve error reporting in display interface ([668b25d](https://github.com/Mahlet-Inc/hobbits/commit/668b25dae1f5e9af4f9f05f9caa697e1c91941c3))
+
+# [0.43.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.42.0...v0.43.0) (2020-12-12)
+
+
+### Bug Fixes
+
+* issue with QWidget painting off the main thread ([8790b4e](https://github.com/Mahlet-Inc/hobbits/commit/8790b4e84aea6c4e7e548601e11de7d39db61e03))
+
+
+### Features
+
+* add python display plugin interface ([91a47d8](https://github.com/Mahlet-Inc/hobbits/commit/91a47d8823833aaa28ce2ec4ca431e7140ffa179))
+
+# [0.42.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.41.2...v0.42.0) (2020-11-03)
+
+
+### Features
+
+* add custom UI theme ([469cc6f](https://github.com/Mahlet-Inc/hobbits/commit/469cc6f829cee1bb98ae11da28851a907d69d370))
+
+## [0.41.2](https://github.com/Mahlet-Inc/hobbits/compare/v0.41.1...v0.41.2) (2020-10-29)
+
+
+### Bug Fixes
+
+* [plugin] correct some (not all) problems in kaitai runner ([2edfe19](https://github.com/Mahlet-Inc/hobbits/commit/2edfe1921f8333dd6352c6a4bfabf47856cede00))
+
+## [0.41.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.41.0...v0.41.1) (2020-10-28)
+
+
+### Bug Fixes
+
+* [plugin] fix bug with custom kaitai struct running ([37e8a55](https://github.com/Mahlet-Inc/hobbits/commit/37e8a55e8ab079352d624841965a0638bd3456fa))
+
+# [0.41.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.40.1...v0.41.0) (2020-10-23)
+
+
+### Bug Fixes
+
+* handle larger word sizes correctly in Frequency Plot ([81fb8a7](https://github.com/Mahlet-Inc/hobbits/commit/81fb8a72c2a98c5a4360b3e2149620ba43ee10b3))
+
+
+### Features
+
+* add simple hover data to frequency plot ([7f8b113](https://github.com/Mahlet-Inc/hobbits/commit/7f8b113be0d727642a8a26228551d9091deafb15))
+
+## [0.40.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.40.0...v0.40.1) (2020-10-23)
+
+
+### Bug Fixes
+
+* prevent packet capture failing due to "already running" ([9efaa52](https://github.com/Mahlet-Inc/hobbits/commit/9efaa520f241368021d594d3057c41a0364d8d8b))
+
+# [0.40.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.39.0...v0.40.0) (2020-10-23)
+
+
+### Bug Fixes
+
+* avoid bad python path in some situations in linux ([6bc32b3](https://github.com/Mahlet-Inc/hobbits/commit/6bc32b383826410dff9f8873a1138634b1c8c446))
+* prevent spectrogram renderer deadlock bug ([1f403a2](https://github.com/Mahlet-Inc/hobbits/commit/1f403a2c9410fd0b28560223f0edb180fb042ace))
+
+
+### Features
+
+* [api] revise plugin interfaces (hopefully close to 1.0 now) ([da0a893](https://github.com/Mahlet-Inc/hobbits/commit/da0a8933f295aeebe20f3b5aafaee921abaee131))
+* add DisplayPrint exporter plugin for saving display images ([585806e](https://github.com/Mahlet-Inc/hobbits/commit/585806e08fcf001f45a84062f628080bbb3df98f))
+* add metadata display core plugin ([cde80f0](https://github.com/Mahlet-Inc/hobbits/commit/cde80f0d1477988953991866422cdf3cd48f846a))
+* add pure python plugin interfaces and loader ([72633d4](https://github.com/Mahlet-Inc/hobbits/commit/72633d4c83eeecb8baf1dde8cd96b3c8127f1262))
+* add visual batch editor with flow chart layout ([50ed7c7](https://github.com/Mahlet-Inc/hobbits/commit/50ed7c744251eba70331f0790f2d304c018bb3ac))
+
+# [0.39.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.38.1...v0.39.0) (2020-09-25)
+
+
+### Bug Fixes
+
+* [build] properly #include QPainterPath for Qt 5.15 for [#65](https://github.com/Mahlet-Inc/hobbits/issues/65) ([2a66ed0](https://github.com/Mahlet-Inc/hobbits/commit/2a66ed0a7b2a177d799ddb3aa9427b6ebae6af2c))
+* prevent spectrogram crash (caused by uninitialized values) ([8c60a16](https://github.com/Mahlet-Inc/hobbits/commit/8c60a16ac441d997465f3d5dd35d3cb55e19b2d1))
+* take skip bug in progress reports and output buffering ([92c8a29](https://github.com/Mahlet-Inc/hobbits/commit/92c8a2980506cd88ecfaca95b6247357872f1010))
+
+
+### Features
+
+* add packet capture importer ([4620445](https://github.com/Mahlet-Inc/hobbits/commit/46204456690f43510aa0a9eb9877f949bf539c91))
+* add preemptive size-limiting to UDP import ([9417f8e](https://github.com/Mahlet-Inc/hobbits/commit/9417f8e060d440a3ab4b73d57177d11fbcc927af))
+
+## [0.38.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.38.0...v0.38.1) (2020-09-12)
+
+
+### Bug Fixes
+
+* correct some spectrogram rendering issues and a crash ([790e169](https://github.com/Mahlet-Inc/hobbits/commit/790e169345455576eec828b06c27869893891359))
+
+
+### Performance Improvements
+
+* prevent excessive disk allocation by variable frame widths ([beda5de](https://github.com/Mahlet-Inc/hobbits/commit/beda5de35b3b3dc0abd85a882549e6ffd55644a3))
+
+# [0.38.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.37.0...v0.38.0) (2020-09-08)
+
+
+### Bug Fixes
+
+* kill render threads on program exit ([ca80c21](https://github.com/Mahlet-Inc/hobbits/commit/ca80c21e08507874614292b4f0a55a315fb82bea))
+
+
+### Features
+
+* [api] expand PluginStateHelper with QComboBox handling ([8dece5d](https://github.com/Mahlet-Inc/hobbits/commit/8dece5d9a339fe3bfd677671554b4a854a92f1f4))
+* add hover details and slice plots to spectrogram ([231af9f](https://github.com/Mahlet-Inc/hobbits/commit/231af9fbfaf02e87b32bf0b6c6430f831635693c))
+* add UDP importer/exporter ([e06c4aa](https://github.com/Mahlet-Inc/hobbits/commit/e06c4aad15724903648a7432c0568ab5e186ef25))
+* make spectrogram render on a separate thread ([3586739](https://github.com/Mahlet-Inc/hobbits/commit/3586739466eee2b244fb2dd904db5f9725f214ae))
+* make viridis the default spectrogram color map ([30f5e90](https://github.com/Mahlet-Inc/hobbits/commit/30f5e90fb69769a628b78b8ef8822bffaf5dfe50))
+
+
+### Performance Improvements
+
+* [api] rehaul BitArray copying (currently only affects take skip) ([a90270f](https://github.com/Mahlet-Inc/hobbits/commit/a90270fd8f12c235b5e1854601f63bf54d64af86))
+
+# [0.37.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.36.0...v0.37.0) (2020-08-27)
+
+
+### Features
+
+* add endianness controls to spectrogram ([d950d6d](https://github.com/Mahlet-Inc/hobbits/commit/d950d6df8def428ddbf67112c35bb8696eeebcc0))
+* add time and frequency axes to spectrogram ([b4ed14d](https://github.com/Mahlet-Inc/hobbits/commit/b4ed14de0226d47778fb55e6a18af4c2200d56a4))
+* include pre-compiled formats in kaitai struct plugin ([e7b21db](https://github.com/Mahlet-Inc/hobbits/commit/e7b21db12ba440dc1fcb5d9c5f9041ba0ca9a364))
+
+# [0.36.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.35.0...v0.36.0) (2020-08-25)
+
+
+### Features
+
+* add simple spectrogram display ([88db8e7](https://github.com/Mahlet-Inc/hobbits/commit/88db8e7b320ee42c68abeddd54f45613ce1ef6ff))
+
+# [0.35.0](https://github.com/Mahlet-Inc/hobbits/compare/v0.34.1...v0.35.0) (2020-08-20)
+
+
+### Features
+
+* embed python into hobbits with a limited API for [#23](https://github.com/Mahlet-Inc/hobbits/issues/23) ([2f4ef03](https://github.com/Mahlet-Inc/hobbits/commit/2f4ef03fcb9f62dc96eec960e5d1c8a038cb6f96))
+
 ## [0.34.1](https://github.com/Mahlet-Inc/hobbits/compare/v0.34.0...v0.34.1) (2020-07-17)
 
 

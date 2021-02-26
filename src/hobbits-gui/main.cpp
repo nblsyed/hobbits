@@ -1,20 +1,33 @@
-#include "hobbitsguiinfo.h"
+#include "hobbitsguiconfig.h"
 #include "mainwindow.h"
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QStyle>
+#include "settingsmanager.h"
+#include "hobbitsstyle.h"
 #ifdef Q_OS_UNIX
 #include <iostream>
 #include <unistd.h>
 #endif
 
+#ifdef FFTW_AVAILABLE
+#include "fftw3.h"
+#endif
+
 int main(int argc, char *argv[])
 {
+#ifdef FFTW_AVAILABLE
+    // See http://www.fftw.org/fftw3_doc/Thread-safety.html
+    fftw_make_planner_thread_safe();
+#endif
+
     QApplication a(argc, argv);
+
+    HobbitsStyle::applyStyle(a);
 
     QCoreApplication::setOrganizationName("Mahlet");
     QCoreApplication::setApplicationName("hobbits");
-    QCoreApplication::setApplicationVersion(HobbitsGuiInfo::getGuiVersion());
+    QCoreApplication::setApplicationVersion(HobbitsGuiConfig::VERSION);
 
     QCommandLineParser parser;
     parser.setApplicationDescription("GUI for bitstream analysis and visualization");
@@ -46,6 +59,12 @@ int main(int argc, char *argv[])
             QCoreApplication::translate("main", "file"));
     parser.addOption(configFilePathOption);
 
+    QCommandLineOption pythonHomeOption(
+        QStringList() << "python-home",
+            QCoreApplication::translate("main", "The python home path (must have binary compatibility with the built-in hobbits python capabilities)"),
+            QCoreApplication::translate("main", "path"));
+    parser.addOption(pythonHomeOption);
+
     parser.process(a);
 
     QByteArray pipedInData;
@@ -69,6 +88,10 @@ int main(int argc, char *argv[])
 
     if (parser.isSet(configFilePathOption)) {
         configFilePath = parser.value(configFilePathOption);
+    }
+
+    if (parser.isSet(pythonHomeOption)) {
+        SettingsManager::setTransientSetting(SettingsManager::PYTHON_HOME_KEY, parser.value(pythonHomeOption));
     }
 
     MainWindow w(extraPluginPath, configFilePath);

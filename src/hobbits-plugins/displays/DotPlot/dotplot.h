@@ -2,8 +2,6 @@
 #define DOTPLOT_H
 
 #include "displayinterface.h"
-#include "dotplotcontrols.h"
-#include "dotplotwidget.h"
 
 class DotPlot : public QObject, DisplayInterface
 {
@@ -14,17 +12,29 @@ class DotPlot : public QObject, DisplayInterface
 public:
     DotPlot();
 
-    DisplayInterface* createDefaultDisplay();
+    DisplayInterface* createDefaultDisplay() override;
 
-    QString getName();
+    QString name() override;
+    QString description() override;
+    QStringList tags() override;
 
-    QWidget* getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle);
-    QWidget* getControlsWidget(QSharedPointer<DisplayHandle> displayHandle);
+    QSharedPointer<DisplayRenderConfig> renderConfig() override;
+    void setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle) override;
+    QSharedPointer<ParameterDelegate> parameterDelegate() override;
+
+    QSharedPointer<DisplayResult> renderDisplay(
+            QSize viewportSize,
+            const QJsonObject &parameters,
+            QSharedPointer<PluginActionProgress> progress) override;
+
+    QSharedPointer<DisplayResult> renderOverlay(
+            QSize viewportSize,
+            const QJsonObject &parameters) override;
 
 private:
-    void initialize(QSharedPointer<DisplayHandle> displayHandle);
-    DotPlotWidget* m_displayWidget;
-    DotPlotControls* m_controlsWidget;
+    QSharedPointer<ParameterDelegate> m_delegate;
+    QSharedPointer<DisplayRenderConfig> m_renderConfig;
+    QSharedPointer<DisplayHandle> m_handle;
 };
 
 #endif // DOTPLOT_H

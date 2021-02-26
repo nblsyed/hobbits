@@ -1,10 +1,31 @@
 #include "frequencyplot.h"
+#include "frequencyplotform.h"
+#include <QPainter>
+#include "displayhelper.h"
+#include "displayresult.h"
 
 FrequencyPlot::FrequencyPlot() :
-    m_displayWidget(nullptr),
-    m_controlsWidget(nullptr)
+    m_renderConfig(new DisplayRenderConfig())
 {
+    m_renderConfig->setFullRedrawTriggers(DisplayRenderConfig::NewBitOffset | DisplayRenderConfig::NewFrameOffset);
+    m_renderConfig->setOverlayRedrawTriggers(DisplayRenderConfig::NewMouseHover);
 
+    QList<ParameterDelegate::ParameterInfo> infos = {
+        {"scale", QJsonValue::Double},
+        {"word_size", QJsonValue::Double},
+        {"window_size", QJsonValue::Double}
+    };
+
+    m_delegate = ParameterDelegate::create(
+                infos,
+                [](const QJsonObject &parameters) {
+                    int wordSize = parameters.value("word_size").toInt();
+                    return QString("%1-bit Frequency Plot").arg(wordSize);
+    },
+    [](QSharedPointer<ParameterDelegate> delegate, QSize size) {
+            Q_UNUSED(size)
+            return new FrequencyPlotForm(delegate);
+});
 }
 
 DisplayInterface* FrequencyPlot::createDefaultDisplay()
@@ -12,40 +33,165 @@ DisplayInterface* FrequencyPlot::createDefaultDisplay()
     return new FrequencyPlot();
 }
 
-QString FrequencyPlot::getName()
+QString FrequencyPlot::name()
 {
     return "Frequency Plot";
 }
 
-QWidget* FrequencyPlot::getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle)
+QString FrequencyPlot::description()
 {
-    initialize(displayHandle);
-    return m_displayWidget;
+    return "Displays a histogram where each bar shows the frequency of an n-bit word across the given sample window";
 }
 
-QWidget* FrequencyPlot::getControlsWidget(QSharedPointer<DisplayHandle> displayHandle)
+QStringList FrequencyPlot::tags()
 {
-    initialize(displayHandle);
-    return m_controlsWidget;
+    return {"Generic"};
 }
 
-void FrequencyPlot::initialize(QSharedPointer<DisplayHandle> displayHandle)
+QSharedPointer<DisplayRenderConfig> FrequencyPlot::renderConfig()
 {
-    if (!m_displayWidget) {
-        m_displayWidget = new FrequencyPlotWidget(displayHandle, this);
-        m_controlsWidget = new FrequencyPlotControls();
+    return m_renderConfig;
+}
 
-        connect(m_controlsWidget,
-                &FrequencyPlotControls::newWordSize,
-                m_displayWidget,
-                &FrequencyPlotWidget::setWordSize);
-        connect(m_controlsWidget,
-                &FrequencyPlotControls::newWindowSize,
-                m_displayWidget,
-                &FrequencyPlotWidget::setWindowSize);
-        connect(m_controlsWidget,
-                &FrequencyPlotControls::newScale,
-                m_displayWidget,
-                &FrequencyPlotWidget::setScale);
+void FrequencyPlot::setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle)
+{
+    m_handle = displayHandle;
+}
+
+QSharedPointer<ParameterDelegate> FrequencyPlot::parameterDelegate()
+{
+    return m_delegate;
+}
+
+QSharedPointer<DisplayResult> FrequencyPlot::renderDisplay(QSize viewportSize, const QJsonObject &parameters, QSharedPointer<PluginActionProgress> progress)
+{
+    Q_UNUSED(progress)
+    m_barMax.clear();
+    m_barFrequencies.clear();
+
+    if (!m_delegate->validate(parameters)) {
+        m_handle->setRenderedRange(this, Range());
+        return DisplayResult::error("Invalid parameters");
     }
+    if (m_handle.isNull() || m_handle->currentContainer().isNull()) {
+        m_handle->setRenderedRange(this, Range());
+        return DisplayResult::nullResult();
+    }
+
+    int wordSize = parameters.value("word_size").toInt(8);
+    int windowSize = parameters.value("window_size").toInt(10000);
+    int scale = parameters.value("scale").toInt(2);
+
+    auto bits = m_handle->currentContainer()->bits();
+    auto frameOffset = m_handle->frameOffset();
+    if (m_handle->currentContainer()->frameCount() <= frameOffset) {
+        m_handle->setRenderedRange(this, Range());
+        return DisplayResult::error("Invalid frame offset");
+    }
+    qint64 startBit = (m_handle->currentContainer()->frameAt(frameOffset).start() / wordSize) * wordSize;
+
+    quint64 barCount = 1ull << wordSize;
+    int valueIdxShift = 0;
+    if (wordSize == 64) {
+        barCount = 2048;
+        valueIdxShift = 53;
+    }
+    QRgb background = qRgb(0, 0, 0);
+    QRgb foreground = qRgb(200, 230, 255);
+
+    while (barCount > 2048) {
+        barCount >>= 1;
+        valueIdxShift++;
+    }
+
+    int plotSize = int(barCount);
+
+    QMap<quint64, int> frequencies;
+    for (qint64 word = 0; word < windowSize; word++) {
+        qint64 start = startBit + word * wordSize;
+        qint64 end = start + wordSize;
+        if (bits->sizeInBits() < end) {
+            break;
+        }
+        quint64 wordValue = bits->parseUIntValue(start, int(wordSize));
+        if (!frequencies.contains(wordValue)) {
+            frequencies.insert(wordValue, 0);
+        }
+        frequencies[wordValue]++;
+    }
+
+    m_barFrequencies.resize(plotSize);
+    int frequencyMax = 1;
+    for (quint64 wordValue : frequencies.keys()) {
+        quint64 idx = wordValue >> valueIdxShift;
+        int frequency = frequencies.value(wordValue);
+        if (frequency > m_barFrequencies.at(int(idx))) {
+            m_barFrequencies[int(idx)] = frequencies.value(wordValue);
+            m_barMax.insert(int(idx), wordValue);
+            frequencyMax = qMax(frequencyMax, frequency);
+        }
+    }
+
+
+    QImage destImage(viewportSize, QImage::Format_ARGB32);
+    destImage.fill(Qt::transparent);
+    QPainter painter(&destImage);
+
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    painter.scale(scale, scale);
+
+    int plotHeight = qMin(plotSize, 512);
+    painter.fillRect(0, 0, plotSize, plotHeight, background);
+
+    double ratio = -1.0*double(plotHeight)/double(frequencyMax);
+    for (int x = 0; x < m_barFrequencies.size(); x++) {
+        double amount = double(m_barFrequencies.at(x))*ratio;
+        painter.fillRect(QRectF(x, plotHeight, 1, amount), foreground);
+    }
+
+    qint64 lastBit = startBit + (windowSize * wordSize);
+    lastBit = qMin(m_handle->currentContainer()->bits()->sizeInBits() - 1, lastBit);
+    m_handle->setRenderedRange(this, Range(startBit, lastBit));
+
+    return DisplayResult::result(destImage, parameters);
+}
+
+QSharedPointer<DisplayResult> FrequencyPlot::renderOverlay(QSize viewportSize, const QJsonObject &parameters)
+{
+    if (!m_delegate->validate(parameters)) {
+        return DisplayResult::error("Invalid parameters");
+    }
+    QPoint hover = m_handle->mouseHover(this);
+    if (m_handle.isNull()
+            || m_handle->currentContainer().isNull()
+            || !m_delegate->validate(parameters)
+            || hover.isNull()
+            || hover.x() < 0
+            || hover.y() < 0) {
+        return DisplayResult::nullResult();
+    }
+
+    int scale = parameters.value("scale").toInt(2);
+
+    QImage destImage(viewportSize, QImage::Format_ARGB32);
+    destImage.fill(Qt::transparent);
+    QPainter painter(&destImage);
+
+    int barIdx = hover.x() / scale;
+
+    if (!m_barMax.contains(barIdx)
+            || barIdx >= m_barFrequencies.size()) {
+        return DisplayResult::nullResult();
+    }
+
+    quint64 value = m_barMax.value(barIdx);
+    int frequency = m_barFrequencies.at(barIdx);
+
+    QString decimal = QString("%1").arg(value, 0, 10);
+    QString hex = QString("0x%1").arg(value, 0, 16);
+    QString freq = QString("Count: %1").arg(frequency);
+
+    DisplayHelper::drawHoverBox(&painter, QRect({0, 0}, viewportSize), hover, {decimal, hex, freq});
+
+    return DisplayResult::result(destImage, parameters);
 }

@@ -2,9 +2,6 @@
 #define SYMBOLRASTER_H
 
 #include "displayinterface.h"
-#include "symbolrastercontrols.h"
-#include "symbolrasterwidget.h"
-
 
 class SymbolRaster : public QObject, DisplayInterface
 {
@@ -15,18 +12,33 @@ class SymbolRaster : public QObject, DisplayInterface
 public:
     SymbolRaster();
 
-    DisplayInterface* createDefaultDisplay();
+    DisplayInterface* createDefaultDisplay() override;
 
-    QString getName();
+    QString name() override;
+    QString description() override;
+    QStringList tags() override;
 
-    QWidget* getDisplayWidget(QSharedPointer<DisplayHandle> displayHandle);
-    QWidget* getControlsWidget(QSharedPointer<DisplayHandle> displayHandle);
+    QSharedPointer<DisplayRenderConfig> renderConfig() override;
+    void setDisplayHandle(QSharedPointer<DisplayHandle> displayHandle) override;
+    QSharedPointer<ParameterDelegate> parameterDelegate() override;
+
+    QSharedPointer<DisplayResult> renderDisplay(
+            QSize viewportSize,
+            const QJsonObject &parameters,
+            QSharedPointer<PluginActionProgress> progress) override;
+
+    QSharedPointer<DisplayResult> renderOverlay(
+            QSize viewportSize,
+            const QJsonObject &parameters) override;
 
 private:
-    void initialize(QSharedPointer<DisplayHandle> displayHandle);
-
-    SymbolRasterWidget *m_displayWidget;
-    SymbolRasterControls *m_controlsWidget;
+    QPoint headerOffset(const QJsonObject &parameters);
+    QImage getSymbolMapImage(const QSize &size, const QJsonObject &parameters);
+    QSharedPointer<ParameterDelegate> m_delegate;
+    QSharedPointer<DisplayRenderConfig> m_renderConfig;
+    QSharedPointer<DisplayHandle> m_handle;
+    QJsonObject m_lastParams;
+    int m_symbolLength;
 };
 
 #endif // SYMBOLRASTER_H

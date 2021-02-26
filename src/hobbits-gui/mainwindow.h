@@ -1,13 +1,15 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
-#include "bitcontainermanager.h"
+#include "bitcontainermanagerui.h"
 #include "displayinterface.h"
 #include "operatorinterface.h"
 #include "pluginactionlineage.h"
 #include "pluginactionmanager.h"
 #include "hobbitspluginmanager.h"
 #include "previewscrollbar.h"
+#include "batcheditor.h"
+#include "multidisplaywidget.h"
 
 #include <QMainWindow>
 #include <QProgressBar>
@@ -50,8 +52,6 @@ public slots:
     void importBitfile(QString file);
     void importBytes(QByteArray rawBytes, QString name);
 
-    QStringList openHobbitsBits(QString fileName);
-
     void checkOperatorInput(QString pluginName = "");
     void checkCurrentDisplays();
 
@@ -61,12 +61,12 @@ public slots:
     void deleteCurrentBitcontainer();
     void deleteAllBitContainers();
 
-    void setHoverBit(bool hovering, int bitOffset, int frameOffset);
+    void setStatus(QString status);
 
     void requestAnalyzerRun(QString pluginName, QJsonObject pluginState);
     void requestOperatorRun(QString pluginName, QJsonObject pluginState);
-    void requestImportRun(QString pluginName, QJsonObject pluginState = QJsonObject());
-    void requestExportRun(QString pluginName, QJsonObject pluginState = QJsonObject());
+    void requestImportRun(QString pluginName, QJsonObject pluginState);
+    void requestExportRun(QString pluginName, QJsonObject pluginState);
 
     QSharedPointer<BitContainer> currContainer();
 
@@ -75,13 +75,10 @@ public slots:
     void warningMessage(QString message, QString windowTitle = "Warning");
 
 private slots:
-    void on_actionOpen_Container_triggered();
-    void on_action_Save_Current_Container_triggered();
     void on_action_Apply_Batch_triggered();
     void on_action_Save_Batch_triggered();
     void on_action_About_triggered();
     void on_actionPreferences_triggered();
-    void on_tb_scrollReset_clicked();
 
     void pluginActionStarted(QUuid);
     void pluginActionFinished(QUuid);
@@ -104,30 +101,36 @@ private slots:
     void setupSplitViewMenu();
 
     void sendBitContainerPreview();
+    static void processBitPreview(QSharedPointer<BitContainerPreview> preview, AbstractParameterEditor*  editor);
 
+
+    void on_action_BatchEditor_triggered();
 
 private:
     Ui::MainWindow *ui;
 
     QString m_extraPluginPath;
 
-    QSharedPointer<BitContainerManager> m_bitContainerManager;
+    QSharedPointer<BitContainerManagerUi> m_bitContainerManager;
     QSharedPointer<HobbitsPluginManager> m_pluginManager;
     QSharedPointer<PluginActionManager> m_pluginActionManager;
 
-    QMutex m_previewMutex;
-    QSharedPointer<PluginCallback> m_pluginCallback;
-
     QHash<QUuid, PluginProgress*> m_pluginProgress;
+    QHash<QUuid, QSharedPointer<ImporterRunner>> m_pendingImports;
+    QHash<QUuid, QSharedPointer<ExporterRunner>> m_pendingExports;
 
     QMap<int, QSharedPointer<OperatorInterface>> m_operatorMap;
+    QMap<QSharedPointer<OperatorInterface>, AbstractParameterEditor*> m_operatorUiMap;
     QMap<int, QSharedPointer<AnalyzerInterface>> m_analyzerMap;
+    QMap<QSharedPointer<AnalyzerInterface>, AbstractParameterEditor*> m_analyzerUiMap;
 
-    QList<QPair<QMap<int, QSharedPointer<DisplayInterface>>, QTabWidget*>> m_displayMaps;
+    QList<MultiDisplayWidget*> m_displayWidgets;
     QSplitter *m_displayTabsSplitter;
     QSharedPointer<DisplayHandle> m_displayHandle;
     QList<QWidget*> m_currControlWidgets;
     PreviewScrollBar *m_previewScroll;
+
+    BatchEditor *m_batchEditor;
 
     QMenu *m_splitViewMenu;
 };
