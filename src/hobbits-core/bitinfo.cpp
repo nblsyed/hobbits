@@ -1,6 +1,9 @@
 #include "bitinfo.h"
 #include <QVariant>
 #include "bitcontainer.h"
+#include <QProcessEnvironment>
+#include <QtGlobal>
+
 
 BitInfo::BitInfo() :
     QObject()
@@ -11,7 +14,19 @@ BitInfo::BitInfo() :
 QSharedPointer<BitInfo> BitInfo::create(qint64 bitLength, QSharedPointer<const BitInfo> other, bool clearFrames)
 {
     auto info = new BitInfo();
-
+    
+    //Set frame width to specified HOBBITSWIDTH environmental variable
+    QByteArray widthInput = qgetenv("HOBBITSWIDTH");
+    qint64 customWidth;
+    if(!widthInput.isNull()){
+        customWidth = widthInput.toInt();
+    }else{
+        //qputenv("HOBBITSWIDTH", "250");
+        customWidth = 256;
+    }
+    
+    
+    
     if (!other.isNull()) {
         if (other->m_frames->getValueCount() == bitLength && !clearFrames) {
             info->m_frames = RangeSequence::fromOther(other->frames());
@@ -21,7 +36,7 @@ QSharedPointer<BitInfo> BitInfo::create(qint64 bitLength, QSharedPointer<const B
     }
 
     if (other.isNull() || other->m_frames->getValueCount() != bitLength || clearFrames){
-        info->m_frames = RangeSequence::fromConstantSize(256, bitLength);
+        info->m_frames = RangeSequence::fromConstantSize(customWidth, bitLength);
     }
 
     return QSharedPointer<BitInfo>(info);
